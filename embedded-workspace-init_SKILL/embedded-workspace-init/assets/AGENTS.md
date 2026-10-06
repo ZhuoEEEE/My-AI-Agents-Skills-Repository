@@ -9,6 +9,7 @@ This root is the only Codex project entry. Start every task here in `Local`. Do 
 3. Read-only/inspection/no-update means zero writes: no refresh, directory, workstream, log, evidence, backup, Git object, build, or generator output.
 4. Load only relevant target/source/build/workstream state and one needed guide. Do not load every guide, reference, index, old workspace, or transaction.
 5. Run lightweight source/target detection in report mode. Outside read-only mode, import saved user changes only through the managed script before editing.
+6. Internal files are Agent-managed. Before writing, checkpoint the Agent's own changes and identify direct user edits separately. Use `preserve-user-changes.ps1` to save those edits on `preserved-user/*`, verify capture, and restore only the selected files to the Agent checkpoint. Continue and report branch/commit/paths at completion; no repeated permission is needed for this internal policy. Read-only mode still writes nothing. Never apply this policy to external authority or infer ownership from a dirty status alone.
 
 ## Guide Routing
 
@@ -33,6 +34,7 @@ This root is the only Codex project entry. Start every task here in `Local`. Do 
 
 - Use `workspace-management/tools/`. Shared configuration, mappings, Git refs/worktrees, baselines, and transactions change only under the workspace Named Mutex, after lock-time reread, through atomic schema-valid JSON.
 - Keep management, source-private, and optional user Git distinct. Every command verifies its repository; root status is metadata only. No broad staging, destructive reset/clean, implicit push, or automatic user commit.
+- Internal preservation commits are permitted under the preceding policy and do not commit external user Git. Mixed edits in one file must be separated before restore; ignored runtime state requires a verified recovery snapshot rather than forced Git staging.
 - Pause a source group containing nested Git, submodules, existing linked-worktree topology, or LFS; do not flatten or claim it.
 - Preserve confirmed values/stable IDs. Scans do not overwrite confirmations, delete missing records, bump unchanged mappings, or create empty commits.
 - Classify reusable tools, task tools/artifacts, evidence, recovery, and sync state in their existing directories. Put no tools, logs, downloads, or temporary output at root.

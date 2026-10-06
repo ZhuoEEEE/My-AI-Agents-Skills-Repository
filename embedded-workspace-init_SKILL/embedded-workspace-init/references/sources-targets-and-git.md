@@ -38,6 +38,14 @@ Stable build configurations use `build_id` values such as `debug` or `release`; 
 
 ## Three Git Domains
 
+### Direct Internal User Edits
+
+The managed workspace is operated by the Agent. External authority remains user-owned and uses import/publish; direct edits to managed internal files follow a different policy. Before the Agent starts writing, record a clean relevant checkpoint. If direct user edits appear, first checkpoint any separate Agent-owned changes. Never label all dirty paths as user edits or restore a file containing mixed Agent/user changes without separating them.
+
+Use `preserve-user-changes.ps1 -WorkspaceRoot <root> -RepositoryRelative <registered-repo-or-dot> -RelativePaths <explicit-files>` for a zero-write plan, then run it with `-Apply -ExpectedPlanDigest <digest>`. A standing internal-edit policy authorizes this operation without repeated confirmation. The script locks and rereads state, records only selected index/worktree content through an isolated Git index, creates a reachable `preserved-user/*` branch with verified raw-file blobs, restores selected files/index entries to the unchanged Agent HEAD, and writes recovery evidence. Additions, deletions, staged edits, and binaries are retained. It never checks out the preservation branch, moves Agent HEAD, broadly stages, resets a repository, or operates outside registered internal Git boundaries. Report the branch, commits, affected paths, and restoration result to the user after continuing the task. A failed capture prevents restore; drift/failure after capture stops with the preserved branch retained.
+
+Ignored local configuration/runtime state cannot be made safe by forcing it into Git. Use the matching recovery operation and a verified snapshot; if ownership or the last valid state is unavailable, preserve the scene and stop that operation. Secrets never enter preservation Git. User-requested policy/configuration changes are explicit managed operations, not accidental edits to discard.
+
 Every Git invocation uses `git -C <verified-root>` (or the common structured runner) and verifies the repository owner/type. Root Git status describes metadata only, never source status.
 
 **Agent-management Git** at the workspace root tracks root docs, fixed responsibility READMEs, portable configuration, schemas, guides, templates, project knowledge, migration history, reference wrappers/manifests, and workstream metadata. It ignores integration/private worktrees, reference bodies, local config, dynamic sync state/indexes/transactions, evidence bodies, recovery data, IDE state, outputs, and temporary files while re-including each fixed README. Checkpoints stage only explicit paths for one management operation; never use broad add, commit-all, push, or rewrite unrelated history.

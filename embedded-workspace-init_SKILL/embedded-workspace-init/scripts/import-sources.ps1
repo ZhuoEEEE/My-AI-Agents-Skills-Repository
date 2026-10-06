@@ -43,7 +43,7 @@ function Read-Index {
     $values = [ordered]@{}
     foreach ($line in [IO.File]::ReadLines($Path)) {
         if ([string]::IsNullOrWhiteSpace($line)) { throw "Blank or partial JSONL record in $Path" }
-        if (-not (Test-Json -Json $line -SchemaFile $fileIndexSchema -ErrorAction Stop)) { throw "JSONL record does not match schema '$fileIndexSchema': $Path" }
+        if (-not (Test-Json -Json $line -SchemaFile $fileIndexSchema -ErrorAction SilentlyContinue)) { throw "JSONL record does not match schema '$fileIndexSchema': $Path" }
         $entry = $line | ConvertFrom-Json -Depth 20 -ErrorAction Stop
         $key = "$($entry.mapping_id)|$(([string]$entry.path).ToLowerInvariant())"
         if ($values.Contains($key)) { throw "Duplicate file index key: $key" }

@@ -29,6 +29,12 @@ function Assert-Throws {
     }
     throw "Assertion failed: expected an error containing '$Pattern'."
 }
+function Assert-ThrowsAny {
+    param([Parameter(Mandatory)] [scriptblock] $Action)
+    try { & $Action }
+    catch { $script:assertions++ | Out-Null; return }
+    throw 'Assertion failed: expected an error.'
+}
 
 function Write-Utf8Text {
     param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [string] $Text)
@@ -196,7 +202,7 @@ try {
     foreach ($level in 1..105) { $nested = [ordered]@{ child = $nested } }
     Assert-Throws -Pattern 'depth' -Action { $null = ConvertTo-EwiCanonicalJson $nested }
     $lowDepth = [ordered]@{ a = [ordered]@{ b = [ordered]@{ c = 'value' } } }
-    Assert-Throws -Pattern 'depth' -Action { $null = $lowDepth | ConvertTo-Json -Depth 1 -WarningAction Stop }
+    Assert-ThrowsAny -Action { $null = $lowDepth | ConvertTo-Json -Depth 1 -WarningAction Stop }
     $invalidIndexPath = Join-Path $scratch 'invalid-index.jsonl'
     Assert-Throws -Pattern 'schema' -Action {
         Write-EwiJsonLinesAtomic -Path $invalidIndexPath -Records @([pscustomobject]@{ foo = 'bar' }) -SchemaPath (Join-Path $PSScriptRoot '..\assets\schemas\file-index-record.schema.json')

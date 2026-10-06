@@ -64,7 +64,7 @@ function Read-IndexMap {
     $map = [ordered]@{}
     foreach ($line in [IO.File]::ReadLines($Path)) {
         if ([string]::IsNullOrWhiteSpace($line)) { throw "Incomplete JSONL index: $Path" }
-        if (-not (Test-Json -Json $line -SchemaFile $fileIndexSchema -ErrorAction Stop)) { throw "JSONL record does not match schema '$fileIndexSchema': $Path" }
+        if (-not (Test-Json -Json $line -SchemaFile $fileIndexSchema -ErrorAction SilentlyContinue)) { throw "JSONL record does not match schema '$fileIndexSchema': $Path" }
         $item = $line | ConvertFrom-Json -Depth 20 -ErrorAction Stop
         $key = "$($item.mapping_id)|$(([string]$item.path).ToLowerInvariant())"
         if ($map.Contains($key)) { throw "Duplicate index key: $key" }

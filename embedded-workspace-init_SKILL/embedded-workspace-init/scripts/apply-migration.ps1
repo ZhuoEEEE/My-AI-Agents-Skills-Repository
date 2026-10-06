@@ -17,6 +17,9 @@ $plan = $payloadJson | ConvertFrom-Json -Depth 40 -ErrorAction Stop
 if ($plan.schema -ne 1 -or $plan.route -ne 'legacy-migration' -or $null -eq $plan.legacy) {
     throw 'The approved payload is not a version 1 legacy migration plan.'
 }
+$ruleDisposition = if ($plan.legacy.PSObject.Properties.Name -contains 'rule_disposition') { [string]$plan.legacy.rule_disposition } else { 'archive' }
+if ($ruleDisposition -notin @('archive', 'preserve-only')) { throw 'Unsupported legacy rule disposition.' }
+$registerHistory = if ($plan.legacy.PSObject.Properties.Name -contains 'register_as_history') { [bool]$plan.legacy.register_as_history } else { $true }
 
 $workspace = Resolve-EwiPath -Path ([string]$plan.workspace_root) -AllowMissing
 $legacy = Resolve-EwiPath ([string]$plan.legacy.root)
@@ -145,7 +148,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
     $legacyId = "legacy-$legacyIdBase-$((Get-EwiTextSha256 (Get-EwiPathIdentity $legacy)).Substring(0, 8))"
     $archiveRoot = Join-Path $workspace 'workspace-management/history/legacy-instructions'
     $archiveFiles = [Collections.Generic.List[object]]::new()
-    foreach ($ruleName in @($plan.legacy.rule_files)) {
+    foreach ($ruleName in @($plan.legacy.rule_files | Where-Object { $ruleDisposition -eq 'archive' })) {
         $original = Join-EwiContainedPath -Root $legacy -RelativePath ([string]$ruleName)
         if (-not (Test-Path -LiteralPath $original -PathType Leaf)) { throw "Approved legacy rule disappeared: $ruleName" }
         $hash = Get-EwiSha256 $original
@@ -164,6 +167,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
         })
         $copiedFiles.Add("workspace-management/history/legacy-instructions/$archiveName")
     }
+    if ($ruleDisposition -eq 'archive') {
     $manifest = [ordered]@{
         schema = 1
         legacy_workspace_id = $legacyId
@@ -173,12 +177,15 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
     $manifestPath = Join-Path $archiveRoot 'manifest.json'
     Write-EwiJsonAtomic -Path $manifestPath -Value $manifest -SchemaPath (Join-Path $workspace 'workspace-management/schemas/legacy-instructions-manifest.schema.json')
     $copiedFiles.Add('workspace-management/history/legacy-instructions/manifest.json')
+    }
 
+    if ($registerHistory) {
     $localPath = Join-Path $workspace 'workspace-management/config/targets.local.json'
     $localSchema = Join-Path $workspace 'workspace-management/schemas/targets-local.schema.json'
     $local = Read-EwiJson -Path $localPath -SchemaPath $localSchema
     $local.legacy_workspaces | Add-Member -NotePropertyName $legacyId -NotePropertyValue ([pscustomobject][ordered]@{ path = $legacy.Replace('\', '/') })
     Write-EwiJsonAtomic -Path $localPath -Value $local -SchemaPath $localSchema
+    }
 
     $reportTemplate = Get-Content -LiteralPath (Join-Path $workspace 'workspace-management/templates/initialization-report.md') -Raw -Encoding UTF8
     $copySummary = @($normalizedMappings | ForEach-Object { "- $($_.source_relative) -> $(if ($_.action -eq 'copy') { $_.destination_relative } else { 'preserved only at legacy path' }) [$($_.classification)]" }) -join [Environment]::NewLine
@@ -188,8 +195,8 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
         Replace('{{PLAN_DIGEST}}', $ApprovalDigest).
         Replace('{{MANIFEST_DIGEST}}', (Get-EwiInventoryDigest $currentLegacy)).
         Replace('{{COPY_MAPPINGS}}', $copySummary).
-        Replace('{{VERIFICATION}}', '- Legacy inventory unchanged.`n- Copied files matched approved hashes.`n- New root paths, schemas, Git boundaries, and archived rules verified.'.Replace('`n', [Environment]::NewLine)).
-        Replace('{{PRESERVED_AND_SKIPPED}}', '- Legacy workspace remained in place and unchanged.`n- User Git, builds, hardware, permissions, and tool installation were not modified.'.Replace('`n', [Environment]::NewLine))
+        Replace('{{VERIFICATION}}', '- Legacy inventory unchanged.`n- Copied files matched approved hashes.`n- New root paths, schemas, Git boundaries, and approved rule disposition verified.'.Replace('`n', [Environment]::NewLine)).
+        Replace('{{PRESERVED_AND_SKIPPED}}', ('- Legacy workspace remained in place and unchanged.`n- Legacy rule disposition: ' + $ruleDisposition + '.`n- Legacy path registered for historical access: ' + $registerHistory + '.`n- User Git, builds, hardware, permissions, and tool installation were not modified.').Replace('`n', [Environment]::NewLine))
     $reportPath = Join-Path $workspace 'workspace-management/migration/initialization-report.md'
     [IO.File]::WriteAllText($reportPath, $report.TrimEnd() + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
     $copiedFiles.Add('workspace-management/migration/initialization-report.md')

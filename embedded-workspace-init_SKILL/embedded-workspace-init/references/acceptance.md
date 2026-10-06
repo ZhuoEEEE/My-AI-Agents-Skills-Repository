@@ -15,7 +15,7 @@ Format: `ID | priority | original number | observable requirement`.
 - CORE-05 | P0 | original=7 | Layout initialization adds no rule, guide, Git ignore, or Agent file to user authority.
 - GIT-01 | P0 | original=8 | User Git and its ignore file are created only through separately explicit authorization.
 - CORE-06 | P0 | original=9 | An active workspace has exactly one generated root `AGENTS.md` and no active root override/fallback.
-- MIG-03 | P1 | original=10 | Legacy rules are archived byte-for-byte with origin, timestamp, SHA-256, prior-active state, and nondiscoverable names.
+- MIG-03 | P1 | original=10 | Default legacy-rule archival is byte-for-byte with provenance and nondiscoverable names; explicit digest-bound preserve-only copies no rule bodies or archive manifest.
 - CORE-07 | P1 | original=11 | Rule-like files already present in external user sources remain byte-for-byte unchanged.
 - CORE-08 | P0 | original=12 | Initialization records/rechecks the real root before activation; nonlocal/root mismatch/outer worktree states stop writes.
 - MIG-04 | P1 | original=13 | Legacy history is read only on demand and is never automatically targeted, built, synced, published, or loaded as policy.
@@ -96,3 +96,4 @@ Lightweight-design additions have no original number:
 - CONTEXT-01 | P0 | original=new | SKILL/root-rule size targets are soft and no safety behavior is removed merely to meet them.
 - CONTEXT-02 | P0 | original=new | Ordinary tasks load only relevant guides/state and scripts emit summaries rather than complete logs/indexes/history.
 - SYNC-17 | P0 | original=new | No `sync-state/workstreams/` cache exists; comparisons derive from source state, indexes, and workstream manifests.
+- GIT-08 | P0 | original=new | Selected internal user edits survive on a verified branch before file restore; Agent HEAD, unrelated edits/index entries, and external authority stay unchanged; stale plans and secrets prevent restore.

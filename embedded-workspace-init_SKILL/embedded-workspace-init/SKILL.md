@@ -23,6 +23,8 @@ Read [lifecycle-and-migration.md](references/lifecycle-and-migration.md) for eve
 - Reference projects or durable project knowledge: [references-and-project-knowledge.md](references/references-and-project-knowledge.md)
 - JSON fields, states, schemas, or evidence: [configuration-schema.md](references/configuration-schema.md)
 
+For direct user edits inside an Agent-managed workspace, read the internal-edit section of [sources-targets-and-git.md](references/sources-targets-and-git.md). Preserve the selected changes on a Git branch before restoring the Agent checkpoint; external authority edits still use normal import.
+
 Do not load all references, all targets, all workstreams, complete indexes, historical transactions, or every reference project by default.
 
 ## Route The Request
@@ -36,6 +38,8 @@ Use `scripts/plan-migration.ps1` for read-only inventory and route selection. It
 - **Reference import:** read the reference guide, then use `scripts/import-reference.ps1`. A reference stays outside source/target discovery and publishing.
 
 Partial approval does not authorize a partial migration. Revise the plan and request confirmation again. A material change between plan and apply invalidates approval.
+
+Honor explicit legacy exclusions. `plan-migration.ps1 -LegacyRuleDisposition preserve-only -RegisterLegacyWorkspace:$false` keeps old instructions solely at the old path and omits a live historical-path binding. These choices are digest-bound; classify unwanted legacy directories/files as `preserve-only`, never delete them.
 
 ## Shared Invariants
 

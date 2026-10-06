@@ -7,6 +7,8 @@ param(
     [string] $CopyMappingsJson,
     [string[]] $KnownActiveWorkspaceRoot = @(),
     [string[]] $LegacyRuleFile = @(),
+    [ValidateSet('archive', 'preserve-only')] [string] $LegacyRuleDisposition = 'archive',
+    [bool] $RegisterLegacyWorkspace = $true,
     [switch] $PolicyUpgrade
 )
 
@@ -360,6 +362,8 @@ if (-not [string]::IsNullOrWhiteSpace($LegacyWorkspaceRoot)) {
             inventory_digest = Get-EwiInventoryDigest $legacyInventory
             file_count = @($legacyInventory.files).Count
             rule_files = @($legacyRuleFiles)
+            rule_disposition = $LegacyRuleDisposition
+            register_as_history = $RegisterLegacyWorkspace
             copy_mappings = @($normalizedCopyMappings)
         }
         $route = 'legacy-migration'
@@ -392,7 +396,7 @@ if ($route -eq 'policy-upgrade') {
             $canonical["workspace-management/schemas/$($schemaFile.Name)"] = $schemaFile.FullName
         }
         $canonical['workspace-management/tools/lib/workspace-common.psm1'] = $modulePath
-        foreach ($name in @('plan-migration.ps1', 'detect-targets.ps1', 'import-reference.ps1', 'promote-reference.ps1', 'create-reference-copy.ps1', 'import-sources.ps1', 'add-source.ps1', 'migrate-source-mappings.ps1', 'set-user-git.ps1', 'new-workstream.ps1', 'update-workstream.ps1', 'pin-workstream-dependency.ps1', 'set-build-config.ps1', 'invoke-build.ps1', 'publish-workstream.ps1')) {
+        foreach ($name in @('plan-migration.ps1', 'preserve-user-changes.ps1', 'detect-targets.ps1', 'import-reference.ps1', 'promote-reference.ps1', 'create-reference-copy.ps1', 'import-sources.ps1', 'add-source.ps1', 'migrate-source-mappings.ps1', 'set-user-git.ps1', 'new-workstream.ps1', 'update-workstream.ps1', 'pin-workstream-dependency.ps1', 'set-build-config.ps1', 'invoke-build.ps1', 'publish-workstream.ps1')) {
             $canonical["workspace-management/tools/$name"] = Join-Path $PSScriptRoot $name
         }
         $operations = [Collections.Generic.List[object]]::new()

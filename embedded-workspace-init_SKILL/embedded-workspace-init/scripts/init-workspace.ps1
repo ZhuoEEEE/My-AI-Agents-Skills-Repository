@@ -333,6 +333,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
 
     $runtimeScripts = @(
         'plan-migration.ps1',
+        'preserve-user-changes.ps1',
         'detect-targets.ps1',
         'import-reference.ps1',
         'promote-reference.ps1',

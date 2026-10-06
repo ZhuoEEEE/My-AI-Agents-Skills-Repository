@@ -232,7 +232,12 @@ function ConvertTo-EwiCanonicalJson {
     $oldWarningPreference = $WarningPreference
     try {
         $WarningPreference = 'Stop'
-        return ConvertTo-Json -InputObject $Value -Depth $script:EwiJsonDepth -Compress -WarningAction Stop
+        try {
+            return ConvertTo-Json -InputObject $Value -Depth $script:EwiJsonDepth -Compress -WarningAction Stop
+        }
+        catch {
+            throw "JSON serialization depth exceeded or failed: $($_.Exception.Message)"
+        }
     }
     finally {
         $WarningPreference = $oldWarningPreference
@@ -334,7 +339,7 @@ function Read-EwiJson {
         throw "JSON file is empty: $Path"
     }
     if ($SchemaPath) {
-        $valid = Test-Json -Json $raw -SchemaFile $SchemaPath -ErrorAction Stop
+        $valid = Test-Json -Json $raw -SchemaFile $SchemaPath -ErrorAction SilentlyContinue
         if (-not $valid) { throw "JSON does not match schema '$SchemaPath': $Path" }
     }
     return ($raw | ConvertFrom-Json -Depth $script:EwiJsonDepth -DateKind String -ErrorAction Stop)
@@ -353,7 +358,13 @@ function Write-EwiJsonAtomic {
         throw "JSON parent directory does not exist: $parent"
     }
     $json = ConvertTo-EwiCanonicalJson -Value $Value
-    if (-not (Test-Json -Json $json -SchemaFile $SchemaPath -ErrorAction Stop)) {
+    try {
+        $schemaValid = Test-Json -Json $json -SchemaFile $SchemaPath -ErrorAction SilentlyContinue
+    }
+    catch {
+        throw "Refusing schema-invalid JSON write: $Path. $($_.Exception.Message)"
+    }
+    if (-not $schemaValid) {
         throw "Refusing schema-invalid JSON write: $Path"
     }
     $roundTrip = $json | ConvertFrom-Json -Depth $script:EwiJsonDepth -DateKind String -ErrorAction Stop
@@ -392,7 +403,13 @@ function Write-EwiJsonLinesAtomic {
     $lines = [Collections.Generic.List[string]]::new()
     foreach ($record in $Records) {
         $line = ConvertTo-EwiCanonicalJson -Value $record
-        if (-not (Test-Json -Json $line -SchemaFile $SchemaPath -ErrorAction Stop)) { throw "JSONL record does not match schema '$SchemaPath': $Path" }
+        try {
+            $schemaValid = Test-Json -Json $line -SchemaFile $SchemaPath -ErrorAction SilentlyContinue
+        }
+        catch {
+            throw "JSONL record does not match schema '$SchemaPath': $Path. $($_.Exception.Message)"
+        }
+        if (-not $schemaValid) { throw "JSONL record does not match schema '$SchemaPath': $Path" }
         $parsed = $line | ConvertFrom-Json -Depth $script:EwiJsonDepth -DateKind String -ErrorAction Stop
         if (-not (Test-EwiJsonEquivalent -Expected $record -Actual $parsed)) {
             throw "JSONL record failed round-trip comparison: $Path"
@@ -406,7 +423,13 @@ function Write-EwiJsonLinesAtomic {
         [IO.File]::WriteAllText($temporary, $content, [Text.UTF8Encoding]::new($false))
         foreach ($line in [IO.File]::ReadLines($temporary)) {
             $null = $line | ConvertFrom-Json -Depth $script:EwiJsonDepth -DateKind String -ErrorAction Stop
-            if (-not (Test-Json -Json $line -SchemaFile $SchemaPath -ErrorAction Stop)) { throw "Written JSONL record failed schema validation: $Path" }
+            try {
+                $schemaValid = Test-Json -Json $line -SchemaFile $SchemaPath -ErrorAction SilentlyContinue
+            }
+            catch {
+                throw "Written JSONL record failed schema validation: $Path. $($_.Exception.Message)"
+            }
+            if (-not $schemaValid) { throw "Written JSONL record failed schema validation: $Path" }
         }
         [IO.File]::Move($temporary, $Path, $true)
     }
@@ -461,6 +484,7 @@ function Invoke-EwiProcess {
         [Parameter(Mandatory)] [string] $Executable,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $ArgumentList,
         [Parameter(Mandatory)] [string] $WorkingDirectory,
+        [hashtable] $Environment = @{},
         [switch] $AllowFailure
     )
 
@@ -473,6 +497,14 @@ function Invoke-EwiProcess {
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
+    if ([IO.Path]::GetFileNameWithoutExtension($resolvedExecutable) -eq 'git') {
+        foreach ($key in @($startInfo.Environment.Keys)) {
+            if ($key -match '^GIT_(?:DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|PREFIX|CONFIG(?:_COUNT|_PARAMETERS|_KEY_\d+|_VALUE_\d+)?|SHALLOW_FILE|GRAFT_FILE|REPLACE_REF_BASE)$') {
+                $null = $startInfo.Environment.Remove($key)
+            }
+        }
+    }
+    foreach ($key in $Environment.Keys) { $startInfo.Environment[$key] = [string]$Environment[$key] }
     foreach ($argument in $ArgumentList) {
         $startInfo.ArgumentList.Add($argument)
     }
@@ -514,6 +546,7 @@ function Invoke-EwiGit {
     param(
         [Parameter(Mandatory)] [string] $Repository,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $ArgumentList,
+        [hashtable] $Environment = @{},
         [switch] $AllowFailure
     )
 
@@ -524,7 +557,7 @@ function Invoke-EwiGit {
             throw "Git repository root mismatch. Expected '$repositoryPath', actual '$actualRoot'."
         }
     }
-    return Invoke-EwiProcess -Executable 'git' -ArgumentList (@('-C', $repositoryPath) + $ArgumentList) -WorkingDirectory $repositoryPath -AllowFailure:$AllowFailure
+    return Invoke-EwiProcess -Executable 'git' -ArgumentList (@('-C', $repositoryPath) + $ArgumentList) -WorkingDirectory $repositoryPath -Environment $Environment -AllowFailure:$AllowFailure
 }
 
 function Initialize-EwiGitRepository {
@@ -671,6 +704,7 @@ function Get-EwiFileInventory {
     $gitTopology = [Collections.Generic.List[string]]::new()
     $links = [Collections.Generic.List[string]]::new()
     $errors = [Collections.Generic.List[string]]::new()
+    $keilOutputDirectories = [Collections.Generic.List[string]]::new()
     $pending = [Collections.Generic.Stack[string]]::new()
     $pending.Push($rootPath)
 
@@ -682,6 +716,18 @@ function Get-EwiFileInventory {
         catch {
             $errors.Add("$directory :: $($_.Exception.Message)")
             continue
+        }
+        foreach ($project in @($children | Where-Object { -not $_.PSIsContainer -and $_.Extension -eq '.uvprojx' })) {
+            try {
+                $xml = [xml][IO.File]::ReadAllText($project.FullName)
+                foreach ($node in $xml.SelectNodes('//TargetCommonOption/OutputDirectory')) {
+                    $output = [string]$node.InnerText
+                    if ([string]::IsNullOrWhiteSpace($output)) { continue }
+                    $outputPath = [IO.Path]::GetFullPath((Join-Path $project.DirectoryName $output))
+                    if (Test-EwiPathWithin -Path $outputPath -Parent $rootPath -AllowEqual -AllowMissing) { $keilOutputDirectories.Add($outputPath) }
+                }
+            }
+            catch { $errors.Add("$($project.FullName) :: unreadable Keil output configuration: $($_.Exception.Message)") }
         }
         foreach ($child in $children) {
             $relative = [IO.Path]::GetRelativePath($rootPath, $child.FullName).Replace('\', '/')
@@ -705,6 +751,16 @@ function Get-EwiFileInventory {
                 continue
             }
             if ($script:EwiExcludedFiles -contains $child.Name) {
+                $excluded.Add($relative)
+                continue
+            }
+            if ($child.Name -match '\.uvguix\.' -or $child.Extension -eq '.dbgconf') {
+                $excluded.Add($relative)
+                continue
+            }
+            $inKeilOutput = @($keilOutputDirectories | Where-Object { Test-EwiPathWithin -Path $child.FullName -Parent $_ -AllowMissing }).Count -gt 0
+            if (-not $IncludeBuildDirectories -and (($inKeilOutput -and $child.Extension -in @('.o', '.d', '.crf', '.axf', '.hex', '.map', '.lnp', '.dep', '.htm')) -or
+                ($child.Extension -eq '.lst' -and (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($child.FullName, '.s')))))) {
                 $excluded.Add($relative)
                 continue
             }
@@ -965,6 +1021,8 @@ Export-ModuleMember -Function @(
     'Add-EwiGitPaths',
     'New-EwiGitCommit',
     'Get-EwiFileInventory',
+    'Get-EwiSensitiveClassification',
+    'Test-EwiAmbiguousLicenseFile',
     'Get-EwiInventoryDigest',
     'Get-EwiMappingDigest',
     'Test-EwiInventoriesEqual',
