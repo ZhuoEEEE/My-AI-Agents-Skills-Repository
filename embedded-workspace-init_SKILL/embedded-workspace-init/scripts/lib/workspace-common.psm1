@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 
-$script:EwiSchemaVersion = 1
-$script:EwiPolicyVersion = 1
+$script:EwiSchemaVersion = 2
+$script:EwiPolicyVersion = 2
 $script:EwiJsonDepth = 100
 $script:EwiExcludedDirectories = @(
     '.git',
@@ -923,7 +923,8 @@ function Assert-EwiActiveWorkspace {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $WorkspaceRoot,
-        [switch] $AllowInitializing
+        [switch] $AllowInitializing,
+        [switch] $AllowLegacyPolicy
     )
 
     $root = Resolve-EwiPath -Path $WorkspaceRoot
@@ -931,6 +932,8 @@ function Assert-EwiActiveWorkspace {
     $schemaRoot = Join-Path $root 'workspace-management/schemas'
     $workspace = Read-EwiJson -Path (Join-Path $configRoot 'workspace.json') -SchemaPath (Join-Path $schemaRoot 'workspace.schema.json')
     $local = Read-EwiJson -Path (Join-Path $configRoot 'targets.local.json') -SchemaPath (Join-Path $schemaRoot 'targets-local.schema.json')
+    if ($workspace.workspace_schema -ne $workspace.policy_version -or $workspace.policy_version -notin @(1, 2)) { throw 'Unsupported workspace schema/policy version.' }
+    if ($workspace.policy_version -eq 1 -and -not $AllowLegacyPolicy) { throw 'Policy version 1 requires a controlled policy upgrade before mutation.' }
     if ($workspace.layout_mode -ne 'pure' -or $workspace.managed_root -ne '.') {
         throw 'Only a pure workspace with managed_root "." is supported.'
     }
@@ -995,7 +998,18 @@ function Write-EwiEvidence {
     return $path
 }
 
+. (Join-Path $PSScriptRoot 'project-copy-functions.ps1')
+
 Export-ModuleMember -Function @(
+    'Get-EwiSourceRefHead',
+    'New-EwiSourceRef',
+    'Get-EwiProjectOwner',
+    'Initialize-EwiProjectDefinitions',
+    'ConvertTo-EwiWorkstreamV2',
+    'Test-EwiPathMounted',
+    'Set-EwiProjectSelection',
+    'Assert-EwiSourceCopyReady',
+    'Assert-EwiTargetMounted',
     'Get-EwiTimestamp',
     'New-EwiEvidenceId',
     'ConvertTo-EwiId',

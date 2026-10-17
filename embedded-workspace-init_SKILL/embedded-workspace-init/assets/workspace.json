@@ -1,6 +1,6 @@
 {
-  "workspace_schema": 1,
-  "policy_version": 1,
+  "workspace_schema": 2,
+  "policy_version": 2,
   "workspace_state": "initializing",
   "layout_mode": "pure",
   "managed_root": ".",

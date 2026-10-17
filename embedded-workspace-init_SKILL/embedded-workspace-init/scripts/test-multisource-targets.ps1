@@ -3,6 +3,7 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'fixture-project-copies.ps1')
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('ewimt-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 $assertions = 0
@@ -105,6 +106,7 @@ try {
         [ordered]@{ source_id = 'sensor'; targets = $sensorTargets; paths = @([ordered]@{ path = '.'; access = 'write' }) }
     ) | ConvertTo-Json -Depth 12 -Compress
     $workstream = (& (Join-Path $PSScriptRoot 'new-workstream.ps1') -WorkspaceRoot $workspace -Title 'Cross source publish' -ScopeJson $scope | Out-String) | ConvertFrom-Json -Depth 30
+    Mount-FixtureProjectCopies -WorkspaceRoot $workspace -Workstream $workstream
     $manifestPath = Join-Path $workspace "$($workstream.path)\workstream.json"
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json -Depth 40
     $removedSourceScope = @([ordered]@{ source_id = 'controller'; targets = $controllerTargets; paths = @([ordered]@{ path = '.'; access = 'write' }) }) | ConvertTo-Json -Depth 10 -Compress
@@ -112,7 +114,7 @@ try {
         & (Join-Path $PSScriptRoot 'update-workstream.ps1') -WorkspaceRoot $workspace -WorkstreamId $workstream.workstream_id -ScopeJson $removedSourceScope | Out-Null
         throw 'Expected source mount mismatch was not rejected.'
     }
-    catch { Assert-True ($_.Exception.Message -like '*must exactly match the workstream mounted refs*') 'scope update must not remove a mounted source without worktree lifecycle handling' }
+    catch { Assert-True ($_.Exception.Message -like '*Keep existing source refs in scope*') 'scope update must retain source provenance while engineering release is managed separately' }
     $controllerWorktree = Join-Path $workspace $manifest.agent.refs.controller.worktree
     $sensorWorktree = Join-Path $workspace $manifest.agent.refs.sensor.worktree
     Write-Utf8Text -Path (Join-Path $controllerWorktree 'firmware\motor\main.c') -Text "int motor = 7;`r`n"
@@ -199,6 +201,7 @@ try {
     $null = New-EwiGitCommit -Repository $workspace -Message 'chore: complete cross source test workstream' -RelativePaths @("work/$($workstream.workstream_id)/workstream.json")
 
     $staleWorkstream = (& (Join-Path $PSScriptRoot 'new-workstream.ps1') -WorkspaceRoot $workspace -Title 'Stale mapping' -ScopeJson (@([ordered]@{ source_id = 'controller'; targets = @($controllerTargets[0]); paths = @([ordered]@{ path = 'firmware/display'; access = 'write' }) }) | ConvertTo-Json -Depth 10 -Compress) | Out-String) | ConvertFrom-Json -Depth 20
+    Mount-FixtureProjectCopies -WorkspaceRoot $workspace -Workstream $staleWorkstream
     $staleManifestPath = Join-Path $workspace "$($staleWorkstream.path)\workstream.json"
     $staleManifest = Read-EwiJson -Path $staleManifestPath -SchemaPath (Join-Path $workspace 'workspace-management\schemas\workstream.schema.json')
     $staleManifest.agent.refs.controller.mapping_revision++
@@ -231,6 +234,7 @@ try {
     $externalTargetId = @((Get-Content -Raw -LiteralPath $targetsPath | ConvertFrom-Json -Depth 40).targets.PSObject.Properties | Where-Object { $_.Value.source -eq 'external' } | ForEach-Object Name)[0]
     $externalScope = @([ordered]@{ source_id = 'external'; targets = @($externalTargetId); paths = @([ordered]@{ path = '.'; access = 'write' }) }) | ConvertTo-Json -Depth 10 -Compress
     $oldMappingWorkstream = (& (Join-Path $PSScriptRoot 'new-workstream.ps1') -WorkspaceRoot $workspace -Title 'Old mapping task' -ScopeJson $externalScope | Out-String) | ConvertFrom-Json -Depth 20
+    Mount-FixtureProjectCopies -WorkspaceRoot $workspace -Workstream $oldMappingWorkstream
     $oldMappingManifest = Get-Content -Raw -LiteralPath (Join-Path $workspace "$($oldMappingWorkstream.path)\workstream.json") | ConvertFrom-Json -Depth 30
     $oldMappingTree = Join-Path $workspace $oldMappingManifest.agent.refs.external.worktree
     Write-Utf8Text -Path (Join-Path $oldMappingTree 'external.c') -Text "int external = 7;`r`n"

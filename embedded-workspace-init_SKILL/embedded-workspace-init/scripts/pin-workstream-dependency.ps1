@@ -63,6 +63,7 @@ if (Test-DependencyPath -StartId $DependencyWorkstreamId -SoughtId $WorkstreamId
 
 $pinnedRefs = [ordered]@{}
 foreach ($sourceId in Get-ObjectNames $dependency.agent.refs) {
+    Assert-EwiSourceCopyReady $root $sourceId
     $dependencyRef = Get-ObjectValue $dependency.agent.refs $sourceId
     $consumerRef = Get-ObjectValue $consumer.agent.refs $sourceId
     $source = Get-ObjectValue $targets.sources $sourceId
@@ -76,9 +77,10 @@ foreach ($sourceId in Get-ObjectNames $dependency.agent.refs) {
     }
     $dependencyWorktree = Join-EwiContainedPath -Root $root -RelativePath ([string]$dependencyRef.worktree)
     $consumerWorktree = Join-EwiContainedPath -Root $root -RelativePath ([string]$consumerRef.worktree)
-    if (-not [string]::IsNullOrWhiteSpace((Invoke-EwiGit -Repository $dependencyWorktree -ArgumentList @('status', '--porcelain=v1')).StdOut)) { $blockers.Add("Dependency worktree is dirty: $sourceId") }
+    if ($consumerRef.checkout_state -in @('none','released','recovery-required')) { $blockers.Add('Mount the consumer engineering project before pinning dependencies.'); continue }
+    if ((Test-Path -LiteralPath $dependencyWorktree) -and -not [string]::IsNullOrWhiteSpace((Invoke-EwiGit -Repository $dependencyWorktree -ArgumentList @('status', '--porcelain=v1')).StdOut)) { $blockers.Add("Dependency worktree is dirty: $sourceId") }
     if (-not [string]::IsNullOrWhiteSpace((Invoke-EwiGit -Repository $consumerWorktree -ArgumentList @('status', '--porcelain=v1')).StdOut)) { $blockers.Add("Consumer worktree is dirty: $sourceId") }
-    $dependencyHead = (Invoke-EwiGit -Repository $dependencyWorktree -ArgumentList @('rev-parse', 'HEAD')).StdOut.Trim()
+    $dependencyHead = Get-EwiSourceRefHead (Join-Path $root $source.integration_path) $dependencyRef
     $consumerHead = (Invoke-EwiGit -Repository $consumerWorktree -ArgumentList @('rev-parse', 'HEAD')).StdOut.Trim()
     if ($consumerHead -ne [string]$consumerRef.task_base_commit) { $blockers.Add("Consumer already has task commits for '$sourceId'; pin dependencies before task development.") }
     $integration = Join-EwiContainedPath -Root $root -RelativePath ([string]$source.integration_path)
@@ -146,6 +148,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
             }
             $consumerRef.task_base_commit = (Invoke-EwiGit -Repository $worktree -ArgumentList @('rev-parse', 'HEAD')).StdOut.Trim()
             $consumerRef.head_commit = $null
+            Set-EwiProjectSelection $worktree $consumerRef.projects
         }
         $currentConsumer.dependencies = @($records | Sort-Object workstream_id)
         $currentConsumer.updated_at = Get-EwiTimestamp

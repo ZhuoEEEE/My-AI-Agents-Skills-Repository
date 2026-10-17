@@ -3,6 +3,7 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'fixture-project-copies.ps1')
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('ewiiw-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 $assertions = 0
@@ -61,6 +62,7 @@ function New-Workstream {
     param($Fixture, [string] $Title, [string] $Path, [string] $Access = 'write')
     $scope = @([ordered]@{ source_id = 'source'; targets = @($Fixture.target_id); paths = @([ordered]@{ path = $Path; access = $Access }) }) | ConvertTo-Json -Depth 10 -Compress
     $created = (& (Join-Path $PSScriptRoot 'new-workstream.ps1') -WorkspaceRoot $Fixture.workspace -Title $Title -ScopeJson $scope | Out-String) | ConvertFrom-Json -Depth 30
+    Mount-FixtureProjectCopies -WorkspaceRoot $Fixture.workspace -Workstream $created
     if ($created.status -ne 'created') { return $created }
     $manifestPath = Join-Path $Fixture.workspace "$($created.path)\workstream.json"
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json -Depth 30

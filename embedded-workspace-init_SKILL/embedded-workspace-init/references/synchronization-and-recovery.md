@@ -47,3 +47,7 @@ Confirmed `output_paths` are disposable outputs and do not enter the user baseli
 
 Only an actual successful build with expected updated artifacts advances `last_successful_build_commit`. Report file publication, build verification, and hardware verification as separate facts.
 
+
+## Sparse Engineering State
+
+Private Git commits contain the complete source-group tree while a workstream may check out only selected engineering paths. Compare committed trees for task and dependency changes; physical absence outside the mounted selection is never a delete. Import replay preserves active sparse selections; a released nonterminal branch may use a temporary empty sparse worktree for replay and removes it afterward. `none` refs need no replay until first mount. A publish report must request restoring released projects and any missing dependency-closure paths before the normal frozen plan/apply flow; it never silently materializes files in read-only mode. Git commits and user/build baselines survive engineering-copy release. `recovery-required` copy state blocks import, mount, build, dependency changes and publish for that source until restored.

@@ -2,8 +2,8 @@
 
 ## 状态
 
-- 本目录保存已经讨论确认的 Skill 设计，不是已安装或可直接调用的 Skill。
-- 实际 Skill 已实现，本文件继续作为其设计、维护和验收依据。
+- 本文件保存 `embedded-workspace-init` 的设计、实现和验收规范。
+- 当前策略版本为 2；workspace、targets 和 workstream 使用版本 2。
 - Skill 名称：`embedded-workspace-init`。
 - 调用方式：仅显式调用，关闭隐式调用。
 - 本 Skill 负责初始化和刷新工作区，不负责日常功能开发。
@@ -27,6 +27,8 @@ policy:
 - Agent 默认只读用户权威工程，在工作区受管副本中开发、构建和验证。
 - 不要求用户工程采用固定源码结构，也不重组 IDE 生成的工程。
 - 多个对话可以通过独立 workstream 并行工作。
+- 创建 workstream 不检出工程；修改、生成或构建前才按完整工程根和显式共享依赖挂载任务副本。
+- 正式完成时逐工程检查并释放合格副本，保留任务记录、成果、源组私有 Git 分支和提交。
 - 后续出现新 MCU 工程时自动登记并纳入对应源组私有 Git。
 - Agent 与用户工程通过用户同步基线进行三方比较，仅在用户明确表达发布意图时写回。
 - 普通 Agent 即使没有专门的日常开发 Skill，也能通过根 `AGENTS.md` 正常工作。
@@ -36,7 +38,7 @@ policy:
 - 工作区根目录保持整洁，所有工具、脚本、日志和其他产物分类存放并具有说明。
 - 工作区使用 Agent 管理 Git、源组私有 Git 和可选的用户工程 Git 分离管理不同内容。
 - 根目录生成面向用户的中文使用手册，隐藏内部复杂度。
-- 非空旧 Agent 工作区迁移到新的纯净路径后保持原样，默认登记为 Agent 可按需读取的外部历史参考；用户可明确不登记历史绑定，不再为迁移重复创建备份副本。
+- 非空旧 Agent 工作区迁移到新的纯净路径后保持原样，默认登记为 Agent 可按需读取的外部历史参考；历史路径登记按用户选择配置。
 - 初始化时建立完整的固定目录骨架和职责 README；项目知识正文、参考工程实例、workstream 实例、证据、日志、恢复快照和迁移记录只在对应操作实际发生时生成。
 
 ## 不做的事情
@@ -49,19 +51,10 @@ policy:
 - 不自动安装或升级 IDE、工具链、SDK、Pack、许可证或依赖。
 - 不在初始化阶段烧录、擦除、调试或操作板卡。
 - 不提供后台实时文件监控；自动响应发生在下一次 Agent 任务中。
-- 不创建专用 Windows 账户、NTFS ACL、虚拟机或独立 Publisher。
-- 不承诺操作系统级绝对隔离；采用工作副本、路径检查、Git 和备份形成软隔离。
 - 不实现板卡资源锁或持久化硬件租约。
 - 不强制完整分层测试流水线，不为了形式引入测试框架或模拟器。
 - 不创建专用 Git 提交 Skill；提交规则由 `AGENTS.md` 约束。
 - 不在原路径交换或重组非空旧 Agent 工作区，也不为迁移再复制一份内容相同的初始化备份。
-- 不为尚未出现的任意未来版本预先实现通用迁移引擎；保留版本字段，出现真实版本变化后再增加该版本的确定性迁移规则。
-
-## 轻量化边界
-
-轻量化保留全部已确认的用户能力，只允许以下明确调整：机器状态统一为 JSON/JSONL；删除可重建的 `sync-state/workstreams/` 缓存；将详细运行规则改为按场景读取；合并重复说明和验收索引；完整预建固定目录骨架但按需生成动态内容；未来 schema 迁移按真实版本实现。除此以外的功能或安全机制不得以“精简”为由删除，必须先提出具体变更并再次取得用户确认。
-
-路径隔离、`read-only`、工作区状态门禁、三套 Git、用户/任务/构建基线、可逆映射、文件索引、字段元数据、工作区 Mutex、锁内重读、结构化命令、发布清单、恢复快照、写前哈希、原子替换、安全回滚、构建副作用分类、敏感凭据过滤、法律文件保留和旧规则归档优先于所有大小或文件数量目标。发生冲突时保留安全机制，先调整本规范，不能通过压缩措辞改变其语义。
 
 ## 核心术语
 
@@ -71,19 +64,23 @@ policy:
 
 ### 权威源组
 
-需要保持相对路径、共享代码或共同生成配置的一组用户工程路径。每个源组使用稳定的 `source-id`。
+需要共同保持相对拓扑、共享代码和同步关系的一组正式源码。每个源组使用稳定的 `source-id` 和独立私有 Git，可包含多个 MCU／芯片类别的完整工程及共享协议，不要求按 MCU 工程命名。用户来源通过 mappings 关联权威路径；Agent 自建或参考提升源组可以没有用户权威源。
+
+### 完整工程
+
+实际检出和释放的单位，使用稳定 `project_id`，在源组 `projects` 中登记完整根目录 `root` 与显式共享依赖 `shared_paths`。例如 `MoveBit_stm32g0b1/` 包括 `Core`、`Drivers`、`.ioc` 和 `MDK-ARM` 等必要工程内容，不能只登记 `MDK-ARM/`。共享依赖支持目录或单个文件，保持源组内原相对路径。
 
 ### 目标
 
-一个可识别、构建或验证的 MCU 工程，使用稳定且人类可读的 `target-id`。一个源组可以包含多个目标；相同 MCU 型号也可以有多个目标。
+一个可识别、构建或验证的工程入口，使用稳定且人类可读的 `target-id`，通过 `project_id` 关联所属完整工程。IDE 入口可以位于工程子目录，一个完整工程可以有多个目标和构建配置；CMSIS 内部示例或库入口不因此成为独立主控工程。
 
 ### 集成副本
 
-`sources/<source-id>/integration/` 中的 Agent 受管副本。它保持用户源组必要的目录拓扑，并由源组私有 Git 管理。
+`sources/<source-id>/integration/` 中的完整受管集成副本，保持源组必要的目录拓扑，并由源组私有 Git 管理。
 
 ### Workstream
 
-一个逻辑开发任务及其独立工作副本，位于 `work/<workstream-id>/`。一个 workstream 可以同时涉及多个目标、模块和源组；对话绑定仅用于辅助续接，不作为识别 workstream 的硬依赖。
+一个逻辑开发任务及其记录、工具和产物，位于 `work/<workstream-id>/`。创建任务不创建工程工作树；首次工程写入、生成或构建前才挂载所需工程。同一 workstream 可以涉及多个目标、工程和源组；对话绑定仅用于辅助续接，不作为识别 workstream 的硬依赖。
 
 ### 用户同步基线
 
@@ -164,12 +161,12 @@ $embedded-workspace-init 将 <path-or-url> 导入为参考工程，仅供 Agent 
 - 用户权威工程不能直接充当 `sources/<source-id>/integration/`。
 - Codex 日常任务必须在纯净 Agent 工作区根目录的 `Local` 环境运行，不能对管理根目录使用 Codex-managed 或 permanent worktree，也不能直接把用户工程、`integration/` 或 linked worktree 添加为 Codex 项目。
 
-第一版运行边界：
+当前策略运行边界：
 
-- 仅支持同一台 Windows 主机上的本地工作区和本地管理脚本，不承诺跨主机、网络共享目录或 WSL 与 Windows 并发访问时的互斥一致性。
+- 运行于同一台 Windows 主机的本地工作区，管理脚本使用工作区级 Windows Named Mutex。
 - 初始化计划阶段只读解析候选工作区真实根路径；用户确认后，在 `workspace_state: initializing` 阶段将该路径写入本机配置，并在切换为 `active` 前重新校验。只有已经激活的工作区在普通任务开始时才要求本机配置必须存在且当前真实根路径与记录值一致；不一致时只报告并停止写入。
 - 初始化和日常检查必须实际读取所有已登记用户源和旧工作区参考路径。路径不存在或当前权限不可读时列出具体路径并停止对应操作，不自动修改系统权限。
-- 第一版要求同一用户权威源同时只归属于一个 `workspace_state: active` 的 Agent 工作区。初始化计划必须声明这一限制；发现已知冲突时停止，不引入跨工作区锁或全局注册表。
+- 同一用户权威源同时归属于一个 `workspace_state: active` 的 Agent 工作区，初始化计划检查已知活动工作区的源归属。
 - Codex-managed worktree 只检出 Agent 管理 Git 跟踪的内容，而源码副本、本机配置和同步状态均被该 Git 忽略，因此不得使用 `.worktreeinclude` 绕过本限制复制整套受管状态。
 
 任何一项无法证明满足时，只报告解析结果并停止，不创建目录、配置、Git、备份或构建输出。
@@ -252,7 +249,7 @@ $embedded-workspace-init 将 <path-or-url> 导入为参考工程，仅供 Agent 
 - 如果维持相对关系需要复制一个包含大量无关内容的上级目录，使用多个路径映射复刻必要拓扑，不复制整个无关父目录。
 - 不为管理方便改变用户原有路径、目录名或工程关系。
 - 每个映射使用稳定 `mapping-id`。可移植的 `mapping-id`、`integration-subpath`、类型和映射版本写入 `targets.json`；对应的用户绝对 `source-path` 只写入被 Agent 管理 Git 忽略的 `targets.local.json`。
-- 第一版只支持目录映射。单文件映射只有出现真实需求后再扩展。
+- 用户路径 mappings 使用目录映射。工程检出范围使用 `shared_paths` 登记源组内共享目录或单个文件。
 - 初始化、导入和发布前校验所有真实源路径、集成路径和映射目标互不递归包含；同一源组内的 `integration-subpath` 不得重叠。凡纳入用户同步范围的集成文件，都必须能唯一反向解析到一个 `mapping-id` 和用户相对路径；`agent-created` 或没有用户权威源的 `reference-promoted` 源组可以使用空映射，不适用此要求。
 - 映射变化时递增 `mapping_revision` 并更新摘要；旧 workstream 或发布事务引用其他版本时停止发布，先执行经过确认的映射迁移。
 - 副本路径优先使用较短、纯 ASCII、无特殊字符的路径，以兼容旧工具链。
@@ -278,7 +275,7 @@ $embedded-workspace-init 将 <path-or-url> 导入为参考工程，仅供 Agent 
 9. 发现 MCU 工程，生成稳定 `target-id` 并写入目标配置和最小字段元数据。
 10. 识别或导入用户明确提供的参考工程，并与开发源严格区分。
 11. 识别 IDE、生成器、构建配置、工具链、产物和可用验证入口。
-12. 在安全条件满足时尝试一次普通初始构建验证，单独记录构建结果和构建基线。
+12. 识别普通初始构建所需条件和缺失项，不为布局验证自动运行构建；后续明确构建时，在 active 工作区的当前 workstream 挂载完整工程和依赖，并单独记录结果和构建基线。
 13. 独立询问用户是否为没有 Git 的权威工程创建用户 Git；未确认时不修改用户工程，也不阻塞 Agent 工作区初始化。
 14. 生成唯一根规则、概览、用户手册、完整固定目录骨架、职责 README、运行期指南、JSON schema、项目知识模板和确定性管理脚本；没有真实内容时不创建项目知识正文、参考工程、workstream、证据、日志或恢复实例。
 15. 验证 JSON 可读且符合 schema、三套 Git 边界有效、固定骨架完整、指南路由有效、根规则唯一且用户工程未被意外修改；全部通过后才原子更新为 `workspace_state: active`。
@@ -374,6 +371,7 @@ chore: establish embedded project baseline
 - `workspace-management/sync-state/` 中除固定骨架 `README.md` 外的动态状态和索引。
 - `workspace-management/evidence/`、`workspace-management/recovery/` 和 `workspace-management/ide-workspaces/` 中除各自固定骨架 `README.md` 外的证据、恢复快照和 IDE workspace 状态。
 - 构建产物、下载内容、大型日志及明确的任务临时文件。
+- `work/*/artifacts/project-copy-preserved/` 中的工程释放保留物，不因转存而隐式提交二进制文件或秘密。
 
 `.gitignore` 必须先允许 Git 遍历上述固定骨架目录，再重新纳入根级及 `sync-state/sources/`、`sync-state/indexes/`、`sync-state/transactions/` 中的 `README.md`；不能只写深层否定规则而让父目录仍被整体排除。动态内容保持忽略，职责 README 必须由 Agent 管理 Git 跟踪。
 
@@ -395,18 +393,18 @@ chore: establish embedded project baseline
 - 用户源组对应单个 Git 仓库时，优先建立不共享对象库的独立本地 clone，并导入用户当前已保存的 dirty 和必要 untracked 内容。
 - 用户源组没有 Git，或由多个路径映射组成时，在保持拓扑的集成副本内初始化私有 Git。
 - `user-imported` 源组自动创建用户同步基线、稳定基线 ref 和必要检查点；没有用户权威源的源组只创建初始代码基线和任务检查点。
-- 自动为不同 workstream 创建分支和 linked worktree，固定放在 `work/<workstream-id>/sources/<source-id>/`。
+- workstream 创建时只记录源组基线与预定分支／工作树路径；首次挂载才创建分支和 linked worktree，固定放在 `work/<workstream-id>/sources/<source-id>/`。任务副本按工程及依赖稀疏检出，私有 Git 提交仍保存完整源组树。
 - 不配置可写推送流程，不把内部提交推送或写入用户工程 Git。
 - 新增 MCU 工程时自动纳入相应私有 Git并创建导入提交。
-- 源组私有 Git 只承诺恢复已纳管、已导入且未被过滤的内容，不能替代用户工程自身的完整版本保障。
+- 源组私有 Git 保存已纳管、已导入且未被过滤的内容。
 - 可修改的任务参考副本可以使用同类的临时私有 Git，但不属于任何用户源组，也不参与发布。
 
-第一版不自动纳管 submodule、嵌套 Git、既有 linked worktree 或 Git LFS 源：
+submodule、嵌套 Git、既有 linked worktree 和 Git LFS 源按以下流程处理：
 
 - 发现任一结构时暂停受影响源组，展示仓库拓扑和检测依据，不影响其他明确独立的源组。
 - 不复制 `.git` 元数据、不展平仓库、不自行初始化覆盖它们，也不改写或合并既有历史。
 - 用户可以确认将独立仓库拆成不同源组，或将该源组标记为暂不纳管；未确认前不建立错误的私有 Git 和用户同步基线。
-- 第一版不声称能够同步或逐字节恢复 LFS 对象；只有用户先将其转换为受支持的普通文件布局，或后续明确扩展策略后才能纳管。
+- Git LFS 源保持待处理状态，转换为受管普通文件布局后重新登记。
 
 ### Git 命令路由
 
@@ -501,7 +499,7 @@ Local\embedded-workspace-init-<path-sha256-prefix>
 - 等待超时就结束本次写入并报告资源忙，不创建持久锁文件，也不强行抢锁。
 - 锁内重新读取是强制步骤，不能继续使用锁外的旧 JSON、Git 状态或哈希。
 - JSON、JSONL 和清单先写同目录临时文件，解析并验证通过后再原子替换。
-- 同一进程不得嵌套申请另一把工作区管理锁；第一版不拆分源组锁或发布锁。
+- 同一工作区的源组、发布和管理操作使用同一把 Mutex，同一进程按单层锁范围执行。
 - 互斥锁只能协调遵守协议的脚本，不能阻止用户直接编辑文件；因此所有关键写入仍必须执行哈希前置校验。
 
 ## 多对话并行
@@ -514,7 +512,7 @@ Local\embedded-workspace-init-<path-sha256-prefix>
     -> work/<workstream-id>/sources/<source-id>/
 ```
 
-- 每个独立逻辑任务使用独立 workstream、私有 Git 分支、worktree 和构建输出。
+- 每个独立逻辑任务使用独立 workstream；需要工程操作时才建立独立私有 Git 分支、worktree 和构建输出，不因创建任务而完整检出源组。
 - 新逻辑任务默认创建新 workstream；用户明确续接已有任务，或运行环境能够唯一识别已有绑定时才复用。
 - 一个 workstream 可以同时挂载多个源组的 worktree。
 - 不同 workstream 不直接写同一物理源码文件。
@@ -544,7 +542,7 @@ work/<workstream-id>/
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "id": "20260910-motor-stall-a13f",
   "status": "active",
   "title": "motor stall protection",
@@ -571,7 +569,16 @@ work/<workstream-id>/
         "mapping_revision": 3,
         "user_baseline_commit": "<commit>",
         "task_base_commit": "<commit>",
-        "head_commit": null
+        "head_commit": null,
+        "checkout_state": "sparse",
+        "projects": {
+          "motor-controller": {
+            "root": "firmware/motor-controller",
+            "shared_paths": ["shared/protocol"],
+            "state": "mounted",
+            "frozen_commit": "<commit>"
+          }
+        }
       }
     }
   },
@@ -593,6 +600,8 @@ work/<workstream-id>/
 ```
 
 - 当前运行环境能够稳定提供 `host_id` 和 `thread_id` 时，可以写入 `conversation.primary`；这些字段始终可选，不能成为创建或使用 workstream 的前提。
+- 上例为已挂载工程的任务。创建时 source ref 使用 `checkout_state: none` 和空 `projects`，只固定基线，不创建工程文件或任务分支；没有源码范围的任务允许空 scope 和 refs。显式只读任务不创建 workstream。
+- 每个 source ref 的 `checkout_state` 为 `none|sparse|legacy-full|released|recovery-required`。逐工程保存根目录、共享路径、`state: mounted|released` 和固定提交，物理副本释放后仍保留这些来源及恢复信息。
 - 对话标题和目录名不能代替稳定 ID。用户明确说“继续某任务”时按 `workstream-id` 或唯一匹配绑定；无法唯一判断时才询问。
 - 一个对话同一时刻只绑定一个活动 workstream。切换任务时更新状态或解绑，不覆盖历史关系。
 - `scope` 使用 `source-id + 规范化相对路径 + access`；Windows 路径比较不区分大小写，拒绝 `..` 和真实路径越界。
@@ -601,6 +610,7 @@ work/<workstream-id>/
 - `completed` 或 `abandoned` 只有在 `has_unresolved_changes: false` 时才退出冲突检测。
 - 每个依赖必须引用具体 `workstream_id`、每个相关源组的 `task_base_commit`、`head_commit` 和 `mapping_revision`；不得只引用仍会变化的分支名。
 - 依赖提交必须在对应源组私有 Git 中可取回；依赖关系必须无环，并按固定提交展开。
+- 上游副本释放不影响固定提交可用性；从源组私有 Git 读取依赖内容，不以永久目录引用替代固定提交。消费者先挂载所需工程，发布前补齐依赖闭包所需路径。
 - 依赖任务后续产生的新提交不会自动混入当前任务；只有用户或 Agent 明确重新固定依赖后才更新依赖闭包，并重新检查冲突。
 - `task_base_commit` 可以是已固定依赖的合并起点；当前任务自己的发布差异仍只取 `task_base_commit..head_commit`，固定依赖差异按闭包另行计入。
 
@@ -629,6 +639,34 @@ work/<workstream-id>/
 
 不记录完整聊天、每条命令、完整构建输出或无关浏览过程。Git 记录“改了什么”，`README.md` 记录“为什么、当前状态和下一步”。全局状态直接读取各 `workstream.json`，不维护重复的 `workspace-management/workstreams/` 手写索引。
 
+## 工程副本按需管理
+
+### 工程登记与挂载
+
+源组负责共同拓扑和 Git／同步管理；完整工程及必要共享依赖负责检出和释放。源组、工程、target 和 build 各自使用稳定 ID，不要求名称相同。
+
+- 使用 `set-source-project.ps1`，以 `WorkspaceRoot`、`SourceId`、`ProjectId`、`ProjectRoot`、`SharedPath` 和 `TargetId` 登记或更新工程。`root` 必须是完整工程目录，工程根之间不能重叠；共享路径允许目录和单个文件，可供多个工程共同引用。
+- 可识别的 `.ioc` 根可作为完整工程登记依据；其他 IDE 子目录或依赖不明确时先确认，不自动扩大成整个源组，不将 CMSIS 库内示例拆成独立主控工程。
+- 使用 `manage-project-copy.ps1`，以 `WorkspaceRoot`、`WorkstreamId`、`SourceId`、`ProjectId` 和 `Action: Mount|Release` 操作指定任务的指定工程。
+- 两个入口默认输出零写入计划，应用必须提供相同参数和 `-Apply -ExpectedPlanDigest <plan_digest>`；取得工作区 Named Mutex 后重读状态、重算摘要，使用公共原子 JSON 写入器执行 schema 校验。重复操作保持幂等，不产生空提交。
+- 增加源组前先登记任务 scope；实际检出范围不等于任务写入授权范围。
+
+讨论、查资料、阅读源码和整理工作区文档不创建工程副本，必要的只读源码检查使用 integration。首次修改源码、`.ioc`、IDE 配置，或运行 CubeMX 生成、构建等会写工程目录的操作前，挂载所需完整工程及依赖。
+
+首次挂载采用 `git worktree add --no-checkout` 加工作树本地的精确非 cone 稀疏检出，不能先完整检出源组再删除无关目录。实际检出范围是全部已挂载工程根与 `shared_paths` 的并集，保持原相对路径。追加工程复用当前任务源分支，保留原工程修改；已挂载工程继续使用原副本。不同任务的共享文件保持独立物理副本。
+
+### 正式完成与逐工程释放
+
+`update-workstream.ps1` 在正式 `completed` 且无未解决修改时自动逐工程检查并尝试释放，允许文档任务完成及重复完成保持幂等。一轮回复结束不代表任务正式完成；显式请求也可指定任一任务中的单个工程执行 `Release`。
+
+释放前必须检查任务状态、暂存区和工程工作树修改、未完成发布／恢复事务、工程目录引用及成果保存情况。暂停、阻塞、未解决修改、待处理事务、将被移出路径的未提交修改，或已登记命令及响应脚本仍引用该工程目录，都会保留相应副本并报告原因。
+
+工程内需要移出的未跟踪文件、忽略文件和已确认且仍有效的构建输出，先复制到 `work/<workstream-id>/artifacts/project-copy-preserved/<source-id>/<plan-digest-prefix>/`，校验原文件和保留副本 SHA-256 后再移除原位置；该目录不进入管理 Git。任务记录、报告和工程外其他产物不参与回收。
+
+释放单个工程只收缩该任务稀疏选择；其他已挂载工程需要的共享路径继续保留。最后一个工程及依赖释放后正常注销 linked worktree，保留任务分支、提交和源组私有 Git。后续从保留的任务提交恢复，不静默采用最新 integration。
+
+Git 不能安全收缩时停止或回滚，不强制移除工作树。回滚无法证明完整时记录工程副本 `recovery-required`，阻止受影响源组继续导入、挂载、构建、依赖修改和发布；它与发布事务的 `recovery_required` 属于不同字段。历史已完成任务也须通过同一工具单独检查，不能按状态批量删除任务目录。
+
 ## 用户工程导入与发布
 
 只定义三个方向明确的操作：
@@ -653,6 +691,8 @@ work/<workstream-id>/
 每次成功导入都在对应源组私有 Git 中创建可取回受管内容的不可变用户同步基线提交，并使用稳定 ref 保持可达。哈希用于快速检测变化，Git 提交用于取回基线实际内容，两者不能互相替代。扫描不完整、文件不可读或路径被过滤时，不得把“未发现”判定为删除。
 
 活动 workstream 安全导入新的用户变化后，必须先冻结任务检查点，再将任务自己的提交重放到新的用户同步基线和已声明依赖之上，同时更新 `user_baseline_commit` 与 `task_base_commit`。用户来源的变化不得留在 `task_base_commit..head_commit` 的任务差异中；重放产生冲突时停止并报告，不自动改写任务意图。
+
+策略 2 保持任务已有的稀疏检出选择。未检出、已释放和真实删除分开处理，任务与依赖差异从提交树比较，不根据磁盘目录缺失推断删除。`none` 引用在首次挂载前不重放；已释放非终态分支需要重放时，可使用临时空稀疏工作树并在完成后移除，不额外保留工程副本。
 
 ### 同步状态模型
 
@@ -713,7 +753,7 @@ workstream 的身份、范围、`user_baseline_commit`、`task_base_commit`、`h
 
 ### 发布流程
 
-1. 提醒用户一次：保存相关 IDE 和编辑器文件；第一版不处理未保存缓冲区。
+1. 提醒用户一次：保存相关 IDE 和编辑器文件；不处理未保存缓冲区。待发布工程及固定依赖闭包所需路径必须先恢复挂载，缺失时报告需要的工程并停止预检，不在只读规划中隐式创建副本。
 2. 在工作区 Mutex 内重新读取共享状态，冻结当前 workstream 的 `head_commit`，校验 `user_baseline_commit`、`task_base_commit`、固定依赖闭包、`mapping_revision` 和当前工作区状态。
 3. 重新扫描用户权威工程，避免覆盖刚保存的修改；扫描必须完整且所有路径可唯一映射。
 4. 使用 `user_baseline_commit`、用户当前内容和冻结的 `head_commit` 做三方比较；发布内容只来自 `task_base_commit..head_commit` 及固定依赖闭包，不能从整个集成分支推断。
@@ -773,17 +813,14 @@ planned -> backed_up -> applying -> applied -> file_verified -> completed
 
 - 用户明确要求只读、只检查或不更新状态时，本次任务进入最高优先级 `read-only` 模式：只允许不落盘的读取和计算，不创建或修改配置、目录、workstream、日志、备份、Git 提交或构建输出，也不运行已知会写文件的 IDE、生成器或构建命令。该要求同时覆盖普通事实刷新和初始化 Skill。
 - 每次任务开始的轻量变化检查本身始终只读；只有不处于 `read-only` 模式的普通任务才能按既有规则自动导入和更新事实。
-- 工作副本是强制默认架构，不能取消。
+- 工程写入必须使用隔离的受管工作副本；任务记录不要求工程副本常驻，讨论、只读检查和工作区文档任务不因此检出工程。
 - 本 Skill 管理的 Agent 默认只读用户权威工程，普通开发、构建和生成操作在当前 workstream 副本内进行；用户本人、IDE 和编辑器内 Agent 插件的外部修改不受此只读边界限制。
 - 写文件和运行工具前解析真实路径，确认写入位置属于当前 workstream 或明确允许的工作区管理目录。
 - 日常 Codex 项目的根目录只能是独立纯净 Agent 工作区，用户权威工程不属于普通可写 workspace root。
 - 不使用 Full Access 作为推荐工作模式；优先使用仅允许写工作区的沙箱配置。
-- 这属于软隔离和行为约束，不能承诺操作系统层面的绝对不可写。
 - 不自动执行 `stash`、`reset --hard`、覆盖式 checkout、`clean -fdx`、全局格式化或其他破坏性命令。
 - 修改前重新读取文件；检测到同一位置的并发变化时停止该文件修改。
-- Agent 只能看到已保存到磁盘的内容；未保存缓冲区第一版不处理。
-
-最重要的残余风险是副本过期、发布冲突、IDE 未保存内容、生成器覆盖和构建钩子写错目录，而不是普通单文件编辑。
+- Agent 读取已保存到磁盘的内容。
 
 ## IDE 和生成代码
 
@@ -792,6 +829,7 @@ planned -> backed_up -> applying -> applied -> file_verified -> completed
 - 重新生成的 ELF 必须对应副本路径，避免调试信息跳回用户源码。
 - 初始化时识别 `.ioc`、MCC、Harmony 等生成器配置、版本和输出范围。
 - 默认不重新生成代码；需要生成时只在副本执行。
+- 生成或构建前挂载当前任务完整工程及显式依赖，检查命令和响应脚本不得写入另一个任务的工程目录；暂停任务的旧路径配置不能直接借用到新任务。
 - 识别 `USER CODE BEGIN/END` 等保护区，默认只修改允许的用户区域。
 - 生成前建立检查点和受影响文件快照，生成后审查差异并确认用户区仍存在。
 - 用户已有修改位于生成器拥有区时必须说明覆盖风险。
@@ -856,6 +894,7 @@ Eclipse 系厂商 IDE 的 headless 参数必须依据具体版本和工程元数
 - `cwd` 必须位于对应执行上下文允许的工程根内；所有写入目标必须落在已确认的 `output_paths`、`generated_write_paths` 或发布清单中，并拒绝 `..`、绝对路径注入和链接越界。
 - 已登记的工具、SDK、Pack、许可证服务和受管包装脚本可以作为工程根外的只读输入。命令运行器不尝试从任意 CLI 参数猜测每个路径的读写性质，而是通过已登记工具、构建钩子审计和构建前后变化检查约束实际写入。
 - 普通初始化、开发、构建和测试使用 `execution_context: agent-copy`；发布后的用户工程验证只能由发布事务显式使用 `user-authority`，不能成为普通任务的默认写入入口。
+- `agent-copy` 构建前确定目标所属完整工程，并检查工程和依赖均已挂载；命令参数及响应脚本引用其他任务工程路径时停止，不通过旧配置写入其他任务。
 - 必须记录退出码、标准输出、标准错误和实际产生的预期产物。
 - 厂商环境脚本只能通过受管包装脚本调用；包装脚本、工具路径或关键参数变化后，命令标为 `stale` 并重新验证。
 
@@ -873,8 +912,11 @@ Eclipse 系厂商 IDE 的 headless 参数必须依据具体版本和工程元数
 
 ### 安全初始构建条件
 
+首次构建在已激活工作区的当前 workstream 中执行，工程及依赖按需挂载。
+
 - 工具存在且版本查询成功。
 - 工程、目标、配置、工作目录和输出目录明确。
+- 当前任务已挂载目标所属完整工程和共享依赖，命令及响应脚本指向当前任务。
 - 默认构建只在 Agent 副本内写入；用户权威工程构建仅可由已冻结的发布事务在 `user-authority` 上下文中调用。
 - 不需要重新生成源码。
 - 已检查构建钩子，不包含烧录、擦除或未知外部写入。
@@ -897,7 +939,7 @@ Eclipse 系厂商 IDE 的 headless 参数必须依据具体版本和工程元数
 初始化阶段：
 
 - 识别现有验证入口。
-- 条件满足时验证一次普通构建。
+- 不为布局验证自动构建；后续明确运行构建时先挂载当前任务完整工程及依赖。
 - 不主动增加测试框架、模拟器或 HIL 系统。
 
 日常规则：
@@ -1011,7 +1053,7 @@ project-docs/
 
 出现多个目标间的稳定通信协议时，可以按需增加 `project-docs/interfaces/`；验证矩阵变复杂时可以按需增加 `project-docs/verification/`。这些是项目发展后再启用的能力，不是每个工作区的固定空目录。
 
-阶段成果归档保持可选。只有用户明确要求且阶段退出条件已经验证时，才生成不可覆盖旧版本的自包含快照；归档位置和独立 Git 策略在实际需要时另行登记，不作为第一版初始化的强制内容。
+阶段成果归档保持可选。用户明确要求且阶段退出条件已经验证时，生成自包含快照，按实际需求登记归档位置和独立 Git 策略。
 
 ## 工作区根目录和分类
 
@@ -1126,12 +1168,14 @@ workspace-management/
 - 项目级长期事实进入 `project-docs/`，不与单个 workstream 的过程状态混写。
 - 参考工程只进入 `reference-projects/<reference-id>/project/`，不得混入 `sources/` 或正式 workstream 工程。
 - 正式源码保留在 `work/<workstream-id>/sources/<source-id>/` 内对应工程的原有相对位置。
+- 上述任务源码目录按需存在：创建任务不检出，逐工程释放后可为空或注销工作树；完整受管源码树和历史继续保存在源组私有 Git 及 integration 中。
 - 参考工程的试改或构建副本进入 `work/<workstream-id>/reference-copies/<reference-id>/project/`。
 - 一次性任务脚本进入 `work/<workstream-id>/tools/`。
 - 可复用工作区工具进入 `workspace-management/tools/<purpose>/`。
 - 普通 Agent 的按需运行规则进入 `workspace-management/guides/`；根 `AGENTS.md` 只负责选择当前任务需要的指南，不得要求每个任务全部读取。
 - 后续普通 Agent 需要的本地模板进入 `workspace-management/templates/`；不得依赖初始化 Skill 安装目录中的隐藏资源。
 - 分析报告、日志摘要和导出物进入当前 workstream 的 `artifacts/`。
+- 工程释放前的独有产物进入该任务 `artifacts/project-copy-preserved/` 并校验哈希；不随副本回收删除，不自动进入管理 Git。
 - 同步状态进入 `workspace-management/sync-state/`。
 - 构建和验证的结构化证据进入 `workspace-management/evidence/`；配置中只保存简短引用。证据 JSON 使用 `evidence/<kind>-<target-id>[-<build-id>].json` 形式的稳定名称，并由 `evidence.schema.json` 校验；大型 stdout、stderr、二进制报告和厂商原生日志保持其合适格式，由证据 JSON 记录相对路径、媒体类型和 SHA-256，不嵌入 JSON 正文。
 - 发布恢复快照进入 `workspace-management/recovery/<publish-id>/`。
@@ -1150,12 +1194,17 @@ workspace-management/
 初始化完成后，将日常任务需要的确定性脚本部署到 `workspace-management/tools/`：
 
 - `lib/workspace-common.psm1`：统一提供真实路径规范化、工作区 Mutex、原子配置写入和结构化进程执行。
+- `lib/project-copy-functions.ps1`：由公共模块加载，提供工程边界、源引用、稀疏选择和挂载检查。
 - `detect-targets.ps1`：轻量发现新增或变化的 MCU 工程。
 - `import-sources.ps1`：按可逆映射导入用户已保存变化并维护用户同步基线。
 - `preserve-user-changes.ps1`：将明确选定的内部用户修改分别保留为暂存区和磁盘提交，验证后恢复选定文件到 Agent 检查点。
 - `import-reference.ps1`：导入只读参考工程及其来源信息。
 - `create-reference-copy.ps1`：创建带独立私有 Git 基线的任务参考副本。
-- `new-workstream.ps1`：创建或明确复用 workstream、分支、linked worktree 和机器清单。
+- `new-workstream.ps1`：创建或明确复用任务记录、源组基线引用和机器清单，不检出工程。
+- `update-workstream.ps1`：维护 scope、状态和未解决修改标记；正式完成时尝试逐工程释放。
+- `set-source-project.ps1`：登记完整工程根、共享依赖和目标的 `project_id` 关联。
+- `manage-project-copy.ps1`：通过只读计划和摘要绑定的 `Mount` / `Release` 管理指定任务工程副本。
+- `pin-workstream-dependency.ps1`：从私有 Git 固定依赖提交，不要求上游工程副本常驻。
 - `invoke-build.ps1`：解析结构化命令，在指定执行上下文中运行构建并分类文件变化。
 - `publish-workstream.ps1`：冻结任务提交，执行映射校验、三方预检、事务备份和受控发布。
 
@@ -1185,8 +1234,8 @@ workspace-management/
 - JSONL 每行必须是一个完整 JSON 对象；读取失败或出现半行时视为状态不完整，不继续写入或把缺失记录解释为删除。
 - 深度验证必须包含反例：故意以不足的 `ConvertTo-Json -Depth` 序列化多层配置，确认产生警告、嵌套对象发生类型变化，且结果被 schema 或往返类型比较拒绝，不能进入原子替换。
 - 结构化证据统一使用 JSON，并由 `evidence.schema.json` 定义公共信封。公共必需字段至少包括 `schema`、`evidence_id`、`kind`、`captured_at`、`subject`、`result` 和 `artifacts`；`artifacts` 只保存原始产物引用及可用哈希，按 `kind` 需要的详细字段由 schema 约束。证据正文被 Agent 管理 Git 忽略，`evidence/README.md` 属于固定骨架并由 Agent 管理 Git 跟踪。
-- 用户在 2026-09-13 提供的系统终端截图显示 PowerShell `7.6.6`，将其作为当前主机基准；Codex 内部运行时可能不同，因此实现和验收仍须记录脚本实际调用的 PowerShell 可执行文件路径、版本及 JSON/schema 能力，不能用另一个终端或运行时的版本替代。
-- PSGallery 可达性、目标 PowerShell 对深层 JSON 的具体默认行为和 schema 能力必须在后续实现验收中实测，不在设计阶段预判；运行时不得安装解析依赖，也不能依赖默认序列化深度。
+- 实现和验收记录脚本实际调用的 PowerShell 可执行文件路径、版本及 JSON/schema 能力。
+- 运行时使用 PowerShell 自带 JSON/schema 能力，并显式设置序列化深度。
 
 ### `workspace.json`
 
@@ -1194,8 +1243,8 @@ workspace-management/
 
 ```json
 {
-  "workspace_schema": 1,
-  "policy_version": 1,
+  "workspace_schema": 2,
+  "policy_version": 2,
   "workspace_state": "active",
   "layout_mode": "pure",
   "managed_root": ".",
@@ -1213,7 +1262,8 @@ workspace-management/
 - `workspace_state` 在新建或迁移期间为 `initializing`；只有完整验证后才能原子更新为 `active`。非 `active` 工作区不得执行日常开发、导入或发布。
 - `layout_mode` 固定为 `pure`，`managed_root` 固定为 `.`；其他值视为需要迁移的旧格式，不能继续日常写入。
 - `migrated_from` 只记录稳定的旧工作区引用 ID；默认将对应本机绝对路径登记在被忽略的 `targets.local.json`，明确选择 `RegisterLegacyWorkspace: false` 时不建立此历史路径绑定。`migrated_at` 和初始化报告用于说明迁移来源；旧工作区不自动纳入目标或参考工程索引。
-- Skill 自身升级不会自动迁移已有工作区；只有显式刷新并确认具体计划后才改变结构或策略版本。
+- 已有工作区通过显式调用、具体计划和确认流程调整结构或策略版本。
+- workspace、policy、targets 和 workstream 使用版本 2；版本 1 的读取形式用于盘点和 1 到 2 迁移。本机配置与源同步状态使用各自 schema 版本。
 
 ### `targets.json`
 
@@ -1221,7 +1271,7 @@ workspace-management/
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "sources": {
     "motor-product": {
       "origin": "user-imported",
@@ -1241,7 +1291,13 @@ workspace-management/
           "integration_subpath": "shared/protocol",
           "kind": "directory"
         }
-      ]
+      ],
+      "projects": {
+        "motor-controller": {
+          "root": "firmware/motor-controller",
+          "shared_paths": ["shared/protocol"]
+        }
+      }
     },
     "sensor-node": {
       "origin": "agent-created",
@@ -1249,12 +1305,14 @@ workspace-management/
       "integration_path": "sources/sensor-node/integration",
       "sync_strategy": "none",
       "mapping_revision": 0,
-      "mappings": []
+      "mappings": [],
+      "projects": {}
     }
   },
   "targets": {
     "motor-controller": {
       "source": "motor-product",
+      "project_id": "motor-controller",
       "path": "firmware/motor-controller",
       "mcu": "STM32G0B1CBT6",
       "project": {
@@ -1265,7 +1323,7 @@ workspace-management/
       "builds": {
         "debug": {
           "configuration": "Debug",
-          "cwd": "firmware/motor-controller",
+          "cwd": ".",
           "default_execution_context": "agent-copy",
           "command": {
             "tool": "make",
@@ -1281,7 +1339,7 @@ workspace-management/
         },
         "release": {
           "configuration": "Release",
-          "cwd": "firmware/motor-controller",
+          "cwd": ".",
           "default_execution_context": "agent-copy",
           "command": {
             "tool": "make",
@@ -1340,6 +1398,8 @@ workspace-management/
 ```
 
 普通值保持紧凑；只有目标身份、路径、MCU、工程入口、构建命令、生成代码策略等需要保护或追溯的重要字段，才在 `field_metadata` 中按稳定 JSON Pointer 记录元数据。无需为每个字段包装完整对象。
+
+版本 2 的源组包含 `projects` 登记表。每个完整工程以稳定 ID 记录 `root` 和 `shared_paths`；目标可通过 `project_id` 关联所属工程，所属工程无法确定或尚未挂载时停止构建。工程根与共享路径均相对源组；目标 `path` 表示构建入口，build 的 `cwd` 相对目标根目录。新发现的 IDE 入口不能覆盖已确认工程边界。
 
 - `provenance` 使用 `detected|confirmed|imported`，表示值来自扫描、用户确认或既有配置导入。
 - `verification` 使用 `unverified|verified|failed`，只表示该字段是否经过实际验证。
@@ -1408,7 +1468,7 @@ workspace-management/
 
 ### `AGENTS.md`
 
-纯净 Agent 工作区只保留一个系统生成并生效的根 `AGENTS.md`，不创建根 `AGENTS.override.md` 或其他 fallback 指令文件。根文件采用“长期不变量 + 场景路由”，以 6 KiB 为软目标，并验证不超过当前 Codex 指令发现容量；不得为了达到大小目标删减安全约束。条件流程只指向 `workspace-management/guides/` 中的相关指南，不复制配置 schema、发布状态机、长示例或用户手册，也不要求普通任务一次读取全部指南。
+纯净 Agent 工作区使用一个系统生成并生效的根 `AGENTS.md`。根文件采用“长期不变量 + 场景路由”，以 6 KiB 为软目标，并验证其符合指令发现容量。条件流程指向 `workspace-management/guides/` 中的相关指南；配置 schema、发布状态机和用户用法保存在各自文件中。
 
 根文件必须直接写明正确项目入口、真实根路径检查、`read-only`、`workspace_state`、用户工程默认只读、受管脚本和 Mutex、明确发布授权这组共同门禁。根文件与按需指南合计至少覆盖：
 
@@ -1427,6 +1487,8 @@ workspace-management/
 - 用户工程默认只读，普通写入只发生在 workstream 副本。
 - 内部受管文件的用户直接修改先按明确范围保存到 `preserved-user/*`，验证后仅恢复选定文件到不变的 Agent HEAD；暂存区与磁盘内容分别保留，不处理无关改动或外部权威工程，混合修改先分离，结束时报告分支、提交和文件范围。
 - 创建或明确复用 workstream，读取机器清单、固定依赖提交并检查其他活动任务的写入范围。
+- 创建任务不检出工程；修改、生成或构建前才挂载已登记的完整工程和显式依赖，保持源组拓扑，不把 IDE 子目录当作完整工程。
+- 正式完成时逐工程检查和释放；暂停、未解决修改、待发布／恢复事务、工程修改及命令引用阻止受影响释放。保留任务记录、成果、分支和提交，恢复从任务提交继续。
 - 共享配置、Git 元数据、基线和发布只能由取得工作区 Mutex 的受管脚本更新。
 - 所有 Git 操作显式传入管理根、源组 worktree 或已授权用户仓库路径；根 Git 状态不得代替源码仓库状态。
 - 发现 submodule、嵌套 Git、既有 linked worktree 或 LFS 时暂停受影响源组，不自动展平或纳管。
@@ -1435,6 +1497,7 @@ workspace-management/
 - 分类存放所有新文件。
 - 更新 workstream 状态。
 - 发布必须识别明确的 Agent 到用户工程意图并执行三方检查和备份。
+- 未挂载和已释放路径不视为删除；构建／发布前要求恢复必要工程和依赖，只读检查不隐式创建副本，命令及响应脚本不得写入其他任务工程。
 - 用户同步基线与构建基线分开；发布只能来自冻结 workstream 提交和固定提交的显式依赖闭包。
 - 用户工程 Git 提交只在明确要求时执行。
 - 普通任务不得自行修改受管策略、目录模式和迁移工具；发现不适配时只提出调整方案。
@@ -1467,6 +1530,8 @@ workspace-management/
 15. 唯一根 `AGENTS.md`、旧规则归档和禁止单独打开 worktree 的要求。
 16. 为什么任务必须使用 Codex `Local`、如何识别正确根路径，以及外部用户源不可读时如何处理。
 17. 一个目标存在多个 `build-id` 时如何指定构建配置，以及根管理 Git与各源组代码 Git 的状态为何要分别查看。
+18. 源组、完整工程与构建入口的区别，`shared_paths` 的显式依赖和原相对路径要求。
+19. 建立任务不复制工程、何时按需挂载、同任务追加工程、正式完成或显式释放的条件，以及任务记录／成果／源码历史的保留和恢复。
 
 用户手册还应说明内部受管文件的用户直接修改保存流程：暂存区和磁盘内容分别保留到 `preserved-user/*`，验证后恢复选定文件到 Agent 检查点，报告分支、提交和范围；与外部用户权威工程的导入/发布区分。编辑器内 Agent 插件属于外部用户工程一侧的写入者，已保存修改按正常三方导入处理，未保存缓冲区不可见，Codex 日常入口仍为纯净 Agent 工作区根目录的 `Local` 环境。
 
@@ -1478,6 +1543,8 @@ workspace-management/
 重新扫描并登记新增 MCU 工程。
 构建 motor-controller。
 查看当前正在进行的任务。
+仅为当前任务准备 motor-controller 完整工程及已登记共享依赖。
+释放指定任务中的 motor-controller 工程副本，保留任务记录和成果。
 继续之前的电机堵转保护任务。
 为用户工程启用 Git。
 恢复同步前的工程副本。
@@ -1549,15 +1616,25 @@ workspace-management/
 1. 重新读取当前状态；若相对计划发生实质变化，重新展示计划并再次确认。
 2. 创建 Agent 管理 Git 检查点、受影响源组私有 Git 检查点和管理文件快照。
 3. 需要替换根 `AGENTS.md` 时，先按“旧规则归档”保存上一版本及清单，再整体写入唯一的新规则文件；不使用受管区和用户自定义区拼接。随后执行幂等结构或配置迁移，保留稳定 ID、确认字段、已有副本和未提交改动。
-4. 验证 JSON、路径引用、唯一根规则、fallback 排除、检测脚本、工作副本、三套 Git 和分类结构；能安全构建时再执行初始构建验证。
+4. 验证 JSON、路径引用、唯一根规则、fallback 排除、检测脚本、工程登记、挂载状态、三套 Git 和分类结构。构建由对应任务在完整工程及依赖挂载后执行。
 5. 成功后更新版本、必要的 `USER_GUIDE.md`，并在 `workspace-management/history/YYYY-MM-DD-policy-vN-to-vM.md` 记录原因、计划、批准、差异、归档清单、验证和回滚方法。
 6. 验证失败时恢复管理文件和结构、验证回滚结果，并记录失败及已回滚的迁移尝试；不得触碰用户业务源码或隐式发布到用户工程。
 
 根 `AGENTS.md` 由初始化系统整体管理，活跃工作区中只保留这一份生效规则。旧规则原文和元数据只进入历史归档，不复制到新规则；更新后的指令从下一次任务或重新打开工作区开始使用最可靠。
 
+### 策略 1 到 2 的确定性迁移
+
+策略 1 到 2 迁移计划对当前配置和 canonical 内容进行哈希绑定，包含 schema 有效的目标 workspace、targets 和 workstream 状态；锁内重新检查所有相关哈希。
+
+- 将工作区 schema／policy、targets 和 workstream 升至 2，登记可识别的完整工程根及目标关联，保留已确认工程定义。
+- 保留既有 source、target、build、mapping ID、源组映射版本和同步基线，不因工程副本策略改变这些身份。
+- 旧任务物理工作树仍在时标记为 `legacy-full`，无工作树时记录相应释放状态。元数据迁移不直接收缩目录，暂停且有未提交改动的工程保持原内容。
+- 快照、回滚覆盖受影响管理文件和索引；验证后部署同源规则、指南、模板、schema 和运行脚本，不顺带发布用户源码。
+- 工程副本回收通过独立的 `manage-project-copy.ps1 Release` 计划、检查和成果保留流程执行。
+
 ## 无日常开发 Skill 时的运行方式
 
-短期内不需要另建日常开发 Skill。职责关系为：
+日常任务使用根规则、运行指南和受管工具，职责关系为：
 
 ```text
 $embedded-workspace-init
@@ -1570,7 +1647,7 @@ $embedded-workspace-init
     -> 按规则开发、构建、验证、交接和按需发布
 ```
 
-只有从该项目作用域启动且支持 `AGENTS.md` 的 Agent 才能自动遵守这些规则。其他 IDE 插件或工具不一定遵守。未来只有出现稳定、频繁且仅靠 `AGENTS.md` 难以完成的日常工作流时，才考虑创建日常开发 Skill。
+日常 Codex Agent 从工作区根作用域加载 `AGENTS.md`，再读取当前场景指南。编辑器内 Agent 插件在外部用户工程侧维护内容，已保存修改通过受管导入进入工作区。
 
 ## 实际 Skill 建议结构
 
@@ -1593,6 +1670,7 @@ embedded-workspace-init/
 |   |-- version.md
 |   |-- reference-project-README.md
 |   |-- reference-copy-README.md
+|   |-- work-README.md
 |   |-- workstream-README.md
 |   |-- workstream.json
 |   |-- legacy-instructions-manifest.json
@@ -1619,7 +1697,8 @@ embedded-workspace-init/
 |   `-- configuration-schema.md
 `-- scripts/
     |-- lib/
-    |   `-- workspace-common.psm1
+    |   |-- workspace-common.psm1
+    |   `-- project-copy-functions.ps1
     |-- init-workspace.ps1
     |-- plan-migration.ps1
     |-- apply-migration.ps1
@@ -1631,23 +1710,29 @@ embedded-workspace-init/
     |-- preserve-user-changes.ps1
     |-- test-internal-user-changes.ps1
     |-- new-workstream.ps1
+    |-- update-workstream.ps1
+    |-- pin-workstream-dependency.ps1
+    |-- set-source-project.ps1
+    |-- manage-project-copy.ps1
+    |-- fixture-project-copies.ps1
+    |-- test-project-copies.ps1
     |-- invoke-build.ps1
     `-- publish-workstream.ps1
 ```
 
-- `SKILL.md` 只保留触发边界、初始化路由和关键安全约束，以 8 KiB 为软目标；超出时先消除重复和外移条件流程，不得为满足大小目标删除安全规则。
+- `SKILL.md` 保存触发边界、初始化路由和关键约束，以 8 KiB 为软目标；详细条件流程进入 references。
 - 大段条件规则进入按需读取的 references；每次只读取当前路由需要的文件，同一 canonical reference 初始化后原样部署到 `workspace-management/guides/`，不维护重复版本。
 - 稳定生成内容放入 assets。
 - 目录创建、哈希、复制、Git 基线、差异检测和发布预检使用确定性脚本。
 - 路径规范化、工作区 Mutex、原子配置写入和结构化进程执行集中在共享 PowerShell 模块中，避免各脚本产生不同安全语义。
-- 脚本负责输出可复核的盘点事实并执行已确认的分类映射；Agent 根据事实制定迁移计划并处理语义歧义。当前脚本只支持规范中已经定义的初始化和迁移，不预先实现任意未来 schema 之间的通用迁移引擎。
+- 脚本输出可复核的盘点事实并执行已确认的分类映射；Agent 根据事实制定迁移计划并处理语义歧义。
 - `initialization-report.md` 可以从模板生成；实际路径、清单哈希和结果必须由脚本填入，不能保留占位值。
 - 初始化必须建立规范规定的完整固定目录骨架、职责 README、运行期指南、schema 和模板；动态对象与项目内容按实际操作生成，不创建空的参考工程、workstream、证据、日志、恢复快照或项目知识正文。
 - `SPEC.md` 和设计期评审材料不进入实际 Skill 或已初始化工作区。
 
 ## 验收场景
 
-实际 Skill 创建后必须保留既有 81 项行为验收，并补充本次轻量化产生的新验收。每项使用稳定的能力 ID，同时内联优先级和原编号；新增或重排时不得修改既有 ID，也不再维护一份容易失配的数字区间表。
+每项行为验收使用稳定能力 ID，记录优先级及对应编号。验收覆盖初始化、源组、Git、任务、工程副本、同步、构建、迁移、参考工程和项目知识。
 
 - P0 是安全和最小端到端闭环，P2 是参考工程与项目知识基础能力；P0 和 P2 必须全部实现并通过，才能交付最小可用版本。P2 的目录、规则、模板和操作能力必须就绪；行为测试使用隔离样例，不能为了通过测试向实际初始化目标生成虚构的项目内容。
 - P1 保留在完整功能范围内，在真实多源、并发、迁移或运维场景首次启用前完成对应专项验收；未通过时必须明确报告该能力尚未启用，不能静默降级或宣称整份规范已完成。
@@ -1685,7 +1770,7 @@ P1 不使用固定实施顺序，按真实触发条件选择专项门禁：非�
 - `GIT-05` `[P1; 原 28]`：用户工程有 Git时不会自动提交或推送；无 Git时同意、拒绝和无回应进入正确状态。
 - `GIT-06` `[P0; 原 29]`：每个受支持源组自动拥有独立私有 Git 和必要检查点；每个 `user-imported` 源组另有稳定用户基线 ref，所有私有 Git 均不向用户仓库推送。
 - `GIT-07` `[P1; 原 30]`：普通单 Git 用户源的私有 clone能导入已保存的 dirty 和必要 untracked 内容；submodule、嵌套 Git、既有 worktree 或 LFS 会暂停该源组并展示拓扑，不被自动展平。
-- `WORK-01` `[P0; 原 31]`：每个 workstream 使用固定 `work/<id>/sources/<source-id>/` linked worktree，不直接写公共集成副本。
+- `WORK-01` `[P0; 原 31]`：需要工程操作的 workstream 按需使用固定 `work/<id>/sources/<source-id>/` linked worktree，不直接写公共集成副本；建立任务不检出工程。
 - `WORK-02` `[P0; 原 32]`：`workstream.json` 是任务身份、范围、Git 基线和依赖的唯一机器事实源，README 只做人类交接。
 - `WORK-03` `[P1; 原 33]`：对话 ID不可用时仍能创建 workstream；新任务默认新建，明确续接且唯一匹配时才复用。
 - `WORK-04` `[P1; 原 34]`：范围使用 `source-id + 相对路径 + access`，扩大写范围和发布前都会检查冲突。
@@ -1737,7 +1822,7 @@ P1 不使用固定实施顺序，按真实触发条件选择专项门禁：非�
 - `BUILD-07` `[P0; 原 80]`：构建失败并修改生成文件，或出现未登记工程文件副作用时，不推进同步基线；后者进入 `side_effect_review_required` 并阻止新的导入和发布。
 - `MIG-11` `[P1; 原 81]`：非空旧 Agent 工作区直接迁移到新的 `initializing` 路径，旧目录保持不变，按批准计划决定历史登记；源变化或验证失败不会启用新工作区。
 
-本次轻量化新增以下验收：
+JSON、上下文与同步状态验收：
 
 - `DATA-01` `[P0; 新]`：除 `agents/openai.yaml` 和 Skill frontmatter 外，工作区结构化配置、状态、证据和机器清单统一使用符合 schema 的 JSON/JSONL，不依赖外部 YAML 解析模块；原生构建日志和其他非结构化产物保持其合适格式并由证据 JSON 引用。
 - `DATA-02` `[P0; 新]`：JSON 写入显式设置序列化深度，将深度警告视为失败，并通过重新解析、含 `required|type|enum` 的 schema 以及关键路径类型和值往返比较后才原子替换；测试包含深度不足反例，并记录实际 PowerShell 路径和版本。
@@ -1746,30 +1831,19 @@ P1 不使用固定实施顺序，按真实触发条件选择专项门禁：非�
 - `CONTEXT-02` `[P0; 新]`：普通任务只加载当前任务需要的指南、目标和状态，脚本默认只返回摘要，不读取完整 SPEC、全部参考工程、完整索引、历史事务或完整日志。
 - `SYNC-17` `[P0; 新]`：不创建 `sync-state/workstreams/`；逐源比较按需从源组状态、文件索引和 `workstream.json` 计算，结果不成为新的权威状态。
 
-接续实现新增以下验收：
+内部用户修改保存验收：
 
 - `GIT-08` `[P0; 新]`：选定内部用户修改先保存到经验证的可达分支，再恢复选定文件；暂存区和磁盘内容分别保留，包括仅暂存区修改。Agent HEAD、无关改动、无关暂存条目和外部权威工程保持不变；计划过期或发现秘密时禁止恢复。
 
-接续回归还检查 Git 环境变量隔离、旧规则 `preserve-only`、不登记历史绑定，以及 Keil IDE 状态与输出过滤、必要 `.sct` 保留。JSON/JSONL 校验失败由调用方统一抛出明确 schema 错误，避免 PowerShell 本地化原始错误先行终止；校验、往返比较和写入门禁不放宽。
+相关验收覆盖 Git 环境变量隔离、旧规则 `preserve-only`、历史路径登记选择、Keil IDE 状态与输出过滤，以及必要 `.sct` 保留。JSON/JSONL 校验失败由调用方统一抛出明确 schema 错误，在原子替换前完成校验和往返比较。
 
-## 已明确删除或暂缓的设计
+工程副本和版本迁移验收：
 
-- 不使用专用账户、ACL、虚拟机或独立高权限 Publisher 做强隔离。
-- 不承诺 Agent 在技术上绝对无法写用户工程。
-- 不提供把 Agent 管理内容嵌入用户工程的兼容模式。
-- 不把 integration 或 linked worktree 单独作为 Codex 项目，也不向其中额外生成 Agent 规则文件。
-- 不支持在 Agent 管理根使用 Codex-managed 或 permanent worktree；项目内部并行只使用源组私有 Git的 linked worktree。
-- 不实现硬件资源锁；只在资源占用时不抢占。
-- 不处理编辑器未保存缓冲区；发布前只提醒保存一次。
-- 不强制完整分层测试闭环。
-- 不创建专用 Git 提交 Skill。
-- 不创建日常开发 Skill，等实际重复需求出现后再决定。
-- 不使用固定同步口令。
-- 不进行后台实时监控。
-- 不为发布事务进程中断增加独立日志恢复协议；第一版只保留现有事务状态、快照和人工恢复门槛。
-- 不为同步过滤集合增加独立版本号；映射版本、文件索引和当前配置按现有模型处理。
-- 不额外处理 Git clean/smudge、LFS 或换行转换的逐字节恢复语义；发布恢复依赖当前文件哈希和恢复快照。
-- 不为非空旧工作区迁移再创建内容相同的初始化备份，也不实现原路径目录交换。
+- `WORK-09` `[P0; 新]`：创建任务、讨论、文档或只读源码 scope 不检出工程；首次修改、生成或构建只挂载指定完整工程根及显式共享目录／文件依赖。
+- `WORK-10` `[P0; 新]`：增加或释放单个工程保留其他工程修改和仍在使用的共享依赖；最后释放注销工作树，任务记录、分支、提交和已校验产物仍可恢复。
+- `WORK-11` `[P0; 新]`：正式无未解决修改的完成尝试逐工程释放；暂停、未解决修改、事务、目录引用或脏路径保留相应副本，过期计划和失败回滚安全停止；文档任务及重复完成保持幂等。
+- `SYNC-18` `[P0; 新]`：稀疏／释放路径不被判定为删除；导入、构建、依赖固定和发布保持提交来源，不通过硬编码命令路径写入其他任务工程。
+- `MIG-12` `[P0; 新]`：策略 1 到 2 迁移经过哈希绑定、schema 校验并可回滚；旧脏工作树保持内容不变，升级后的历史回收单独验证。
 
 ## 成功标准
 
@@ -1779,6 +1853,7 @@ P1 不使用固定实施顺序，按真实触发条件选择专项门禁：非�
 - 用户日常交互可以压缩为“提出任务、Agent 在副本工作、明确要求时发布”。
 - 用户工程 Git、Agent 管理 Git、源组私有 Git、workstream 和同步方向始终不会在文档或实现中混淆。
 - 多权威源、多 MCU 和多对话并行均能被同一模型表达。
+- 源组保持共同拓扑与私有 Git，任务按完整工程及显式依赖检出和释放；任务记录、成果和源码历史长期保留，缺少物理副本不等于删除源码。
 - 已有用户工程可以无损导入外部 Agent 工作区，旧 Agent 工作区可以经确认迁移；参考工程与权威源、集成副本和 workstream 的职责始终清晰分离。
 - 最小可用版本同时通过全部 P0 和 P2 验收；参考工程与项目知识能力从首个可用版本即存在，但具体内容仍由真实项目按需产生。
 - 未确认的已有工作区迁移或约束升级不会产生任何写入；确认后的变化可验证、可审计、可回滚。

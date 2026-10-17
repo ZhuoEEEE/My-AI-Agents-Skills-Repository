@@ -18,6 +18,10 @@ Do not invent a user path for an Agent-created or reference-promoted source. Add
 
 Add a new external or Agent-created source to an active workspace with `workspace-management/tools/add-source.ps1`. Review its complete digest-bound plan before `-Apply`; reference promotion uses its dedicated command instead.
 
+## Engineering Boundaries
+
+Source-group IDs describe shared topology and Git/synchronization ownership; they need not name a single MCU project. `sources.<id>.projects.<project-id>` stores complete `root` and explicit `shared_paths`. `targets.<id>.project_id` links a build entry to its containing engineering project; nested CMSIS examples remain build candidates rather than independent MCU boundaries. `set-source-project.ps1` registers reviewed roots/dependencies without splitting the source group or bumping unchanged mapping revisions. Missing/ambiguous boundaries block that engineering mount only. A task mounts exactly the selected project/dependency union, and releases only the selected project and now-unused dependencies.
+
 ## Import Filtering
 
 Before copying, enumerate the supplied roots only. Preserve source topology and legal material such as `LICENSE`, `NOTICE`, `COPYING`, copyright lists, startup code, linker scripts, required firmware blobs, and libraries.

@@ -14,26 +14,65 @@
     "migration"
   ],
   "properties": {
-    "workspace_schema": { "type": "integer", "const": 1 },
-    "policy_version": { "type": "integer", "const": 1 },
-    "workspace_state": { "type": "string", "enum": ["initializing", "active"] },
-    "layout_mode": { "type": "string", "const": "pure" },
-    "managed_root": { "type": "string", "const": "." },
-    "initializer": { "type": "string", "const": "embedded-workspace-init" },
-    "initialized_at": { "$ref": "#/definitions/timestamp" },
+    "workspace_schema": {
+      "type": "integer",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "policy_version": {
+      "type": "integer",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "workspace_state": {
+      "type": "string",
+      "enum": [
+        "initializing",
+        "active"
+      ]
+    },
+    "layout_mode": {
+      "type": "string",
+      "const": "pure"
+    },
+    "managed_root": {
+      "type": "string",
+      "const": "."
+    },
+    "initializer": {
+      "type": "string",
+      "const": "embedded-workspace-init"
+    },
+    "initialized_at": {
+      "$ref": "#/definitions/timestamp"
+    },
     "migration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["migrated_from", "migrated_at"],
+      "required": [
+        "migrated_from",
+        "migrated_at"
+      ],
       "properties": {
         "migrated_from": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
         },
         "migrated_at": {
           "oneOf": [
-            { "$ref": "#/definitions/timestamp" },
-            { "type": "null" }
+            {
+              "$ref": "#/definitions/timestamp"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }

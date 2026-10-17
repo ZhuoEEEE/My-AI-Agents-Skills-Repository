@@ -3,6 +3,7 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'fixture-project-copies.ps1')
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('ewigt-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 $assertions = 0
@@ -168,6 +169,7 @@ url = https://invalid.local/vendor
     Assert-True ($null -eq $agentState.user_baseline_commit -and $null -eq $agentState.user_baseline_ref) 'agent-created source must not invent a user baseline'
     $agentScope = @([ordered]@{ source_id = 'agent-source'; targets = @(); paths = @([ordered]@{ path = '.'; access = 'write' }) }) | ConvertTo-Json -Depth 10 -Compress
     $agentWorkstream = (& (Join-Path $PSScriptRoot 'new-workstream.ps1') -WorkspaceRoot $agentWorkspace -Title 'Agent source task' -ScopeJson $agentScope | Out-String) | ConvertFrom-Json -Depth 20
+    Mount-FixtureProjectCopies -WorkspaceRoot $agentWorkspace -Workstream $agentWorkstream
     $agentManifest = Get-Content -Raw -LiteralPath (Join-Path $agentWorkspace "$($agentWorkstream.path)\workstream.json") | ConvertFrom-Json -Depth 30
     $agentTree = Join-Path $agentWorkspace $agentManifest.agent.refs.'agent-source'.worktree
     Write-Utf8Text -Path (Join-Path $agentTree 'main.c') -Text "int agent = 1;`r`n"

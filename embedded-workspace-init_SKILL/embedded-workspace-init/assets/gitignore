@@ -2,6 +2,7 @@
 /workspace-management/config/targets.local.json
 /sources/*/integration/
 /work/*/sources/
+/work/*/artifacts/project-copy-preserved/
 /work/*/reference-copies/*/project/
 /reference-projects/*/project/
 /workspace-management/sync-state/sources/*

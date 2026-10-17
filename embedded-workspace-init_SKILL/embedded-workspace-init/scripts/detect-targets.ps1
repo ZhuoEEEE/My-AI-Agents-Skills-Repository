@@ -146,7 +146,8 @@ $applied = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSe
         }
         $current.field_metadata | Add-Member -NotePropertyName "/targets/$($candidate.target_id)/project" -NotePropertyValue $metadata
     }
-    if ($candidates.Count -gt 0) {
+    $projectChanges = Initialize-EwiProjectDefinitions -Targets $current -WorkspaceRoot $root
+    if ($candidates.Count -gt 0 -or $projectChanges) {
         try {
             Write-EwiJsonAtomic -Path $targetsPath -Value $current -SchemaPath $schemaPath
             $null = New-EwiGitCommit -Repository $root -Message 'chore: register detected embedded targets' -RelativePaths @('workspace-management/config/targets.json')
@@ -157,21 +158,21 @@ $applied = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSe
             throw
         }
     }
-    return $candidates.Count
+    return [pscustomobject]@{ registered = $candidates.Count; project_changes = $projectChanges }
 }
 
 $output = [pscustomobject][ordered]@{
     status = 'applied'
-    registered = $applied
+    registered = $applied.registered
     missing_or_moved = @($missing)
-    changed = ($applied -gt 0)
+    changed = ($applied.registered -gt 0 -or $applied.project_changes)
     evidence = $null
 }
-if ($applied -gt 0) {
+if ($output.changed) {
     $evidenceId = New-EwiEvidenceId 'target-detection'
     $null = Write-EwiEvidence -WorkspaceRoot $root -EvidenceId $evidenceId -Kind 'target-detection' `
         -Subject ([pscustomobject][ordered]@{ workspace = $root; source_id = $null; target_id = $null; build_id = $null; workstream_id = $null; publish_id = $null; reference_id = $null }) `
-        -Result ([pscustomobject][ordered]@{ status = 'passed'; summary = "Registered $applied newly detected embedded target(s)."; exit_code = 0; details = [pscustomobject][ordered]@{ registered = $applied; missing_or_moved = @($missing) } }) -Artifacts @()
+        -Result ([pscustomobject][ordered]@{ status = 'passed'; summary = "Registered $($applied.registered) newly detected embedded target(s)."; exit_code = 0; details = [pscustomobject][ordered]@{ registered = $applied.registered; project_changes = $applied.project_changes; missing_or_moved = @($missing) } }) -Artifacts @()
     $output.evidence = "workspace-management/evidence/$evidenceId.json"
 }
 $output | ConvertTo-Json -Depth 10

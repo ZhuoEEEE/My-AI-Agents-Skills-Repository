@@ -5,9 +5,9 @@ This directory is the single Codex project entry for the embedded product. Open 
 - `USER_GUIDE.md`: user-facing workflow and recovery guide.
 - `project-docs/`: confirmed product, solution, roadmap, decision, and version knowledge.
 - `sources/`: private integration repositories; not normal edit locations.
-- `work/`: isolated task workstreams where development occurs.
+- `work/`: task records and retained artifacts; engineering worktrees are mounted and released per registered project as needed.
 - `reference-projects/`: immutable examples for selective reading.
 - `workspace-management/`: configuration, guides, schemas, tools, sync state, evidence, and recovery.
 
-Current machine state is in `workspace-management/config/workspace.json` and `targets.local.json`. The root Git repository tracks management metadata only; source status belongs to each source-private repository.
+Current machine state is in `workspace-management/config/workspace.json` and `workspace-management/config/targets.local.json`. The root Git repository tracks management metadata only; source status belongs to each source-private repository.
 

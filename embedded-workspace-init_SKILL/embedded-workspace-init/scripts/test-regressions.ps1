@@ -3,6 +3,7 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'fixture-project-copies.ps1')
 
 $skillRoot = Split-Path -Parent $PSScriptRoot
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('embedded workspace regression ' + [Guid]::NewGuid().ToString('N'))
@@ -168,6 +169,7 @@ $value = [pscustomobject]@{ first = $First; second = $Second; third = $Third }
     Assert-Equal '' ((& git -C (Join-Path $workspaceRoot 'sources\promoted-ref\integration') remote | Out-String).Trim()) 'the promoted source must use no-push private Git'
     $promotedScope = @([ordered]@{ source_id = 'promoted-ref'; targets = @(); paths = @([ordered]@{ path = '.'; access = 'write' }) }) | ConvertTo-Json -Depth 10 -Compress
     $promotedWorkstream = (& (Join-Path $PSScriptRoot 'new-workstream.ps1') -WorkspaceRoot $workspaceRoot -Title 'Promoted source check' -ScopeJson $promotedScope | Out-String) | ConvertFrom-Json -Depth 20
+    Mount-FixtureProjectCopies -WorkspaceRoot $workspaceRoot -Workstream $promotedWorkstream
     $promotedManifest = Get-Content -Raw -LiteralPath (Join-Path $workspaceRoot "$($promotedWorkstream.path)\workstream.json") | ConvertFrom-Json -Depth 30
     $promotedWorktree = Join-Path $workspaceRoot $promotedManifest.agent.refs.'promoted-ref'.worktree
     Write-Utf8Text -Path (Join-Path $promotedWorktree 'README.md') -Text "# Changed promoted reference`r`n"
@@ -226,6 +228,7 @@ $value = [pscustomobject]@{ first = $First; second = $Second; third = $Third }
     Assert-True (-not $managedRepeat.can_apply) 'repeating the same build configuration must be idempotent'
     $scope = @([ordered]@{ source_id = 'source'; targets = @($targetId); paths = @([ordered]@{ path = '.'; access = 'write' }) }) | ConvertTo-Json -Depth 10 -Compress
     $workstream = (& (Join-Path $PSScriptRoot 'new-workstream.ps1') -WorkspaceRoot $workspaceRoot -Title 'Regression publish' -ScopeJson $scope | Out-String) | ConvertFrom-Json -Depth 40
+    Mount-FixtureProjectCopies -WorkspaceRoot $workspaceRoot -Workstream $workstream
     $workstreamState = Get-Content -Raw -LiteralPath (Join-Path $workspaceRoot "$($workstream.path)\workstream.json") | ConvertFrom-Json -Depth 40
     $worktree = Join-Path $workspaceRoot $workstreamState.agent.refs.source.worktree
     $referenceBody = Join-Path $workspaceRoot 'reference-projects\legal-warning\project\README.md'

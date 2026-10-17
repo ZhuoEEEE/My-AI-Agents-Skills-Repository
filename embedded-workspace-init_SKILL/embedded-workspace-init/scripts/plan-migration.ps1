@@ -384,6 +384,7 @@ if ($route -eq 'policy-upgrade') {
         $assets = Resolve-EwiPath $sourceAssets
         $references = Resolve-EwiPath $sourceReferences
         $canonical = [ordered]@{
+            'work/README.md' = Join-Path $assets 'work-README.md'
             'AGENTS.md' = Join-Path $assets 'AGENTS.md'
             'README.md' = Join-Path $assets 'README.md'
             'USER_GUIDE.md' = Join-Path $assets 'USER_GUIDE.md'
@@ -395,8 +396,11 @@ if ($route -eq 'policy-upgrade') {
         foreach ($schemaFile in Get-ChildItem -LiteralPath (Join-Path $assets 'schemas') -Filter '*.json' -File) {
             $canonical["workspace-management/schemas/$($schemaFile.Name)"] = $schemaFile.FullName
         }
+        $canonical['workspace-management/tools/lib/project-copy-functions.ps1'] = Join-Path $PSScriptRoot 'lib/project-copy-functions.ps1'
+        $canonical['workspace-management/templates/workstream.json'] = Join-Path $sourceAssets 'workstream.json'
+        $canonical['workspace-management/templates/workstream-README.md'] = Join-Path $sourceAssets 'workstream-README.md'
         $canonical['workspace-management/tools/lib/workspace-common.psm1'] = $modulePath
-        foreach ($name in @('plan-migration.ps1', 'preserve-user-changes.ps1', 'detect-targets.ps1', 'import-reference.ps1', 'promote-reference.ps1', 'create-reference-copy.ps1', 'import-sources.ps1', 'add-source.ps1', 'migrate-source-mappings.ps1', 'set-user-git.ps1', 'new-workstream.ps1', 'update-workstream.ps1', 'pin-workstream-dependency.ps1', 'set-build-config.ps1', 'invoke-build.ps1', 'publish-workstream.ps1')) {
+        foreach ($name in @('plan-migration.ps1', 'preserve-user-changes.ps1', 'detect-targets.ps1', 'import-reference.ps1', 'promote-reference.ps1', 'create-reference-copy.ps1', 'import-sources.ps1', 'add-source.ps1', 'migrate-source-mappings.ps1', 'set-user-git.ps1', 'set-source-project.ps1', 'manage-project-copy.ps1', 'new-workstream.ps1', 'update-workstream.ps1', 'pin-workstream-dependency.ps1', 'set-build-config.ps1', 'invoke-build.ps1', 'publish-workstream.ps1')) {
             $canonical["workspace-management/tools/$name"] = Join-Path $PSScriptRoot $name
         }
         $operations = [Collections.Generic.List[object]]::new()
@@ -435,12 +439,33 @@ if ($route -eq 'policy-upgrade') {
                 }
             }
         }
+        $stateOperations = [Collections.Generic.List[object]]::new()
+        $migrateTargetsPath = Join-Path $workspace 'workspace-management/config/targets.json'
+        $migrateTargets = Read-EwiJson $migrateTargetsPath -SchemaPath (Join-Path $schemaRoot 'targets.schema.json')
+        $null = Initialize-EwiProjectDefinitions -Targets $migrateTargets -WorkspaceRoot $workspace
+        $migrateTargets.schema = 2
+        $stateValues = [ordered]@{ 'workspace-management/config/targets.json' = $migrateTargets }
+        $migrateWorkspace = Read-EwiJson (Join-Path $workspace 'workspace-management/config/workspace.json')
+        $migrateWorkspace.workspace_schema = 2; $migrateWorkspace.policy_version = 2
+        $stateValues['workspace-management/config/workspace.json'] = $migrateWorkspace
+        foreach ($file in Get-ChildItem -LiteralPath (Join-Path $workspace 'work') -Filter 'workstream.json' -Recurse -Depth 2 -File) {
+            $manifest = Read-EwiJson $file.FullName
+            $stateValues[[IO.Path]::GetRelativePath($workspace,$file.FullName).Replace('\','/')] = ConvertTo-EwiWorkstreamV2 $manifest $migrateTargets $workspace
+        }
+        foreach ($relative in $stateValues.Keys) {
+            $currentPath = Join-Path $workspace $relative
+            $currentValue = Read-EwiJson $currentPath
+            if (Test-EwiJsonEquivalent $currentValue $stateValues[$relative]) { continue }
+            $json = (ConvertTo-EwiCanonicalJson $stateValues[$relative]) + [Environment]::NewLine
+            $stateOperations.Add([pscustomobject][ordered]@{path=$relative;action='replace';current_hash=Get-EwiSha256 $currentPath;target_hash=Get-EwiTextSha256 $json;content_base64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json));schema_name=if($relative -like 'work/*'){ 'workstream.schema.json' }elseif($relative -like '*targets.json'){ 'targets.schema.json' }else{'workspace.schema.json'}})
+        }
         $policyUpgradePlan = [pscustomobject][ordered]@{
             current_workspace_schema = [int]$existing.workspace_schema
-            target_workspace_schema = 1
+            target_workspace_schema = 2
             current_policy_version = [int]$existing.policy_version
-            target_policy_version = 1
+            target_policy_version = 2
             operations = @($operations.ToArray())
+            state_operations = @($stateOperations.ToArray())
             local_state_migration = if ($localStateMigration) { 'add-deferred-user-git' } else { $null }
             source_state_migrations = @($sourceStateMigrations.ToArray())
             snapshot_root = 'workspace-management/recovery/<upgrade-id>'
@@ -448,7 +473,7 @@ if ($route -eq 'policy-upgrade') {
             validation = @('canonical hashes', 'JSON schemas', 'root identity', 'management Git boundary', 'source-private Git unchanged')
             rollback = 'restore every original managed/local file and management Git HEAD; leave sources and user Git unchanged'
         }
-        if ($operations.Count -eq 0 -and -not $localStateMigration -and $sourceStateMigrations.Count -eq 0) { $warnings.Add('The workspace already matches policy version 1; no upgrade operation is required.') }
+        if ($operations.Count -eq 0 -and $stateOperations.Count -eq 0 -and -not $localStateMigration -and $sourceStateMigrations.Count -eq 0) { $warnings.Add('The workspace already matches policy version 1; no upgrade operation is required.') }
     }
     catch { $blockers.Add("Policy upgrade could not be planned: $($_.Exception.Message)") }
 }
@@ -476,7 +501,7 @@ $payloadBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($paylo
 $approvalDigest = Get-EwiTextSha256 $payloadJson
 $legacyCanApply = if ($route -eq 'legacy-migration') { $null -ne $legacyPlan -and @($legacyPlan.copy_mappings).Count -gt 0 } else { $true }
 $policyCanApply = if ($route -eq 'policy-upgrade') {
-    $null -ne $policyUpgradePlan -and (@($policyUpgradePlan.operations).Count -gt 0 -or $null -ne $policyUpgradePlan.local_state_migration -or @($policyUpgradePlan.source_state_migrations).Count -gt 0)
+    $null -ne $policyUpgradePlan -and (@($policyUpgradePlan.operations).Count -gt 0 -or @($policyUpgradePlan.state_operations).Count -gt 0 -or $null -ne $policyUpgradePlan.local_state_migration -or @($policyUpgradePlan.source_state_migrations).Count -gt 0)
 }
 else { $true }
 [object[]]$policyOperationSummary = @()
@@ -500,6 +525,7 @@ $output = [pscustomobject][ordered]@{
         source_groups = $sourcePlans.Count
         legacy_workspace = if ($null -eq $legacyPlan) { $null } else { $legacyPlan.root }
         policy_upgrade_operations = $policyOperationSummary
+        state_operations = @(if ($null -ne $policyUpgradePlan) { $policyUpgradePlan.state_operations | Select-Object path,current_hash,target_hash })
         local_state_migration = if ($null -eq $policyUpgradePlan) { $null } else { $policyUpgradePlan.local_state_migration }
         source_state_migrations = $sourceStateMigrationSummary
         blockers = @($blockers)

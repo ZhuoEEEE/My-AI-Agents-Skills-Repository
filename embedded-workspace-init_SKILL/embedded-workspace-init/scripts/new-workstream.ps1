@@ -2,7 +2,7 @@
 param(
     [Parameter(Mandatory)] [string] $WorkspaceRoot,
     [Parameter(Mandatory, ParameterSetName = 'New')] [string] $Title,
-    [Parameter(Mandatory, ParameterSetName = 'New')] [string] $ScopeJson,
+    [Parameter(ParameterSetName = 'New')] [string] $ScopeJson = '[]',
     [Parameter(Mandatory, ParameterSetName = 'Reuse')] [ValidatePattern('^\d{8}-[a-z0-9][a-z0-9-]{0,47}-[a-f0-9]{4}$')] [string] $ReuseWorkstreamId,
     [string] $ConversationHostId,
     [string] $ConversationThreadId,
@@ -57,7 +57,6 @@ if ($PSCmdlet.ParameterSetName -eq 'Reuse') {
 }
 
 $scope = @($ScopeJson | ConvertFrom-Json -Depth 20 -ErrorAction Stop)
-if ($scope.Count -eq 0) { throw 'A new workstream requires at least one explicit scope entry.' }
 $targets = Read-EwiJson -Path $targetsPath -SchemaPath $targetsSchema
 $targetsHash = Get-EwiSha256 $targetsPath
 $scopeSourceIds = @($scope | ForEach-Object { [string]$_.source_id })
@@ -143,7 +142,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
         $readmeTemplate = Get-Content -LiteralPath (Join-Path $root 'workspace-management/templates/workstream-README.md') -Raw -Encoding UTF8
         $readme = $readmeTemplate.Replace('{{WORKSTREAM_TITLE}}', $Title).
             Replace('{{GOAL}}', $Title).
-            Replace('{{CURRENT_STATE}}', 'Active; source worktrees created.').
+            Replace('{{CURRENT_STATE}}', 'Active; source worktrees are created only when an engineering operation needs them.').
             Replace('{{DECISIONS}}', 'None recorded.').
             Replace('{{CHANGES}}', 'No task changes yet.').
             Replace('{{VERIFICATION}}', 'Not run.').
@@ -162,30 +161,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
         $refs = [ordered]@{}
         foreach ($sourceId in @($scope | ForEach-Object source_id | Sort-Object -Unique)) {
             $source = Get-ObjectValue $targets.sources $sourceId
-            $integration = Join-EwiContainedPath -Root $root -RelativePath ([string]$source.integration_path)
-            $actualGitRoot = Get-EwiGitRoot $integration
-            if ((Get-EwiPathIdentity $actualGitRoot) -ne (Get-EwiPathIdentity $integration)) {
-                throw "Source-private Git root mismatch: $sourceId"
-            }
-            $head = (Invoke-EwiGit -Repository $integration -ArgumentList @('rev-parse', 'HEAD')).StdOut.Trim()
-            $userBaseline = $null
-            $statePath = Join-Path $root "workspace-management/sync-state/sources/$sourceId.json"
-            if (Test-Path -LiteralPath $statePath) {
-                $state = Read-EwiJson -Path $statePath -SchemaPath (Join-Path $root 'workspace-management/schemas/source-sync-state.schema.json')
-                $userBaseline = $state.user_baseline_commit
-            }
-            $branch = "workstream/$workstreamId"
-            $worktree = Join-Path $workstreamRoot "sources/$sourceId"
-            $null = Invoke-EwiGit -Repository $integration -ArgumentList @('worktree', 'add', '-b', $branch, $worktree, $head)
-            $createdWorktrees.Add([pscustomobject]@{ repository = $integration; branch = $branch; path = $worktree })
-            $refs[$sourceId] = [ordered]@{
-                branch = $branch
-                worktree = "work/$workstreamId/sources/$sourceId"
-                mapping_revision = [int]$source.mapping_revision
-                user_baseline_commit = $userBaseline
-                task_base_commit = $head
-                head_commit = $null
-            }
+            $refs[$sourceId] = New-EwiSourceRef -WorkspaceRoot $root -Source $source -WorkstreamId $workstreamId -SourceId $sourceId
         }
 
         $conversation = if ($ConversationHostId -or $ConversationThreadId) {
@@ -193,7 +169,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
         }
         else { $null }
         $manifest = [ordered]@{
-            schema = 1
+            schema = 2
             id = $workstreamId
             status = 'active'
             title = $Title

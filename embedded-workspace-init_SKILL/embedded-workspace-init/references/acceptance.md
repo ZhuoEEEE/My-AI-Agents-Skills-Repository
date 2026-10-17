@@ -97,3 +97,11 @@ Lightweight-design additions have no original number:
 - CONTEXT-02 | P0 | original=new | Ordinary tasks load only relevant guides/state and scripts emit summaries rather than complete logs/indexes/history.
 - SYNC-17 | P0 | original=new | No `sync-state/workstreams/` cache exists; comparisons derive from source state, indexes, and workstream manifests.
 - GIT-08 | P0 | original=new | Selected internal user edits survive on a verified branch before file restore; Agent HEAD, unrelated edits/index entries, and external authority stay unchanged; stale plans and secrets prevent restore.
+
+Policy-2 engineering-copy additions have no original number:
+
+- WORK-09 | P0 | original=new | Creating tasks and discussion/document/read scopes checks out no engineering files; first edit/build/generation mounts only selected complete project roots and explicit shared file/directory dependencies.
+- WORK-10 | P0 | original=new | Adding/releasing one engineering project preserves retained project changes and shared dependency users; final release removes the worktree while branches/commits/artifacts remain recoverable.
+- WORK-11 | P0 | original=new | Formal clean completion attempts per-project release; paused/unresolved/transaction/reference/dirty-path blockers retain affected copies; stale plans and failed rollback stop safely.
+- SYNC-18 | P0 | original=new | Sparse/released engineering paths are not deletions; import, build, dependency pin and publish preserve provenance and never write another task through hard-coded command paths.
+- MIG-12 | P0 | original=new | Policy 1-to-2 migration is hash-bound, schema-validated and reversible; old dirty worktrees remain byte-identical and post-upgrade historical cleanup is independently verified.

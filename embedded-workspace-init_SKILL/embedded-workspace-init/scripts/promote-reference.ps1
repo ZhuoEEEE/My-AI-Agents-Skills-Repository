@@ -92,6 +92,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
         }
 
         $currentTargets.sources | Add-Member -NotePropertyName $SourceId -NotePropertyValue ([pscustomobject][ordered]@{
+            projects = [pscustomobject]@{}
             origin = 'reference-promoted'
             user_source = 'none'
             integration_path = "sources/$SourceId/integration"

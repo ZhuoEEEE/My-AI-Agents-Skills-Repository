@@ -264,6 +264,8 @@ function Get-PublishPlan {
             $blockers.Add("Workstream mapping revision is stale for source '$sourceId'.")
             continue
         }
+        Assert-EwiSourceCopyReady $root $sourceId
+        if ($sourceRef.checkout_state -in @('none','released','recovery-required')) { $blockers.Add("Mount released engineering projects before publish: $sourceId"); continue }
         $mappingRevisions[$sourceId] = [int]$source.mapping_revision
         $worktree = Join-EwiContainedPath -Root $root -RelativePath ([string]$sourceRef.worktree)
         $outputPatterns = Get-SourceOutputPatterns -Targets $targets -CurrentSourceId $sourceId
@@ -307,7 +309,7 @@ function Get-PublishPlan {
                     $otherRef = $other.agent.refs.PSObject.Properties[$sourceId]
                     if ($null -ne $pinnedRef -and $null -ne $otherRef) {
                         $otherWorktree = Join-EwiContainedPath -Root $root -RelativePath ([string]$otherRef.Value.worktree)
-                        $otherHead = (Invoke-EwiGit -Repository $otherWorktree -ArgumentList @('rev-parse', 'HEAD')).StdOut.Trim()
+                        $otherHead = Get-EwiSourceRefHead $integration $otherRef.Value
                         if ($otherHead -eq [string]$pinnedRef.Value.head_commit) { continue }
                     }
                 }
@@ -372,6 +374,7 @@ function Get-PublishPlan {
         foreach ($entry in @($diffEntries)) { $diffByPath[([string]$entry.path).ToLowerInvariant()] = $entry }
         foreach ($entry in $diffByPath.Values) {
             $path = Assert-EwiRelativePath -Path ([string]$entry.path)
+            if (-not (Test-EwiPathMounted $sourceRef $path)) { $blockers.Add("Publish path is not mounted; restore its engineering project first: $sourceId/$path"); continue }
             if (-not (Test-PathInScope -Scope @($allowedScope) -SourceId $sourceId -Path $path)) {
                 $blockers.Add("Publish path is outside declared write scope: $sourceId/$path")
                 continue

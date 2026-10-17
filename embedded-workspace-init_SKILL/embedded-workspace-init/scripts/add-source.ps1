@@ -98,6 +98,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
             sync_strategy = if ($hasUserSource) { 'three-way' } else { 'none' }
             mapping_revision = if ($hasUserSource) { 1 } else { 0 }; mappings = @($portableMappings)
         }
+        $sourceValue | Add-Member -NotePropertyName projects -NotePropertyValue ([pscustomobject]@{})
         $currentTargets.sources | Add-Member -NotePropertyName $sourceId -NotePropertyValue $sourceValue
         $currentLocal.sources | Add-Member -NotePropertyName $sourceId -NotePropertyValue ([pscustomobject][ordered]@{ mappings = [pscustomobject]$localMappings })
         Write-EwiJsonAtomic -Path $targetsPath -Value $currentTargets -SchemaPath $targetsSchema

@@ -279,12 +279,12 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
     Install-ManagedFile -Source (Join-Path $assets 'gitignore') -Destination (Join-Path $workspace '.gitignore') -TrackedFiles $tracked
     Install-ManagedFile -Source (Join-Path $assets 'project-docs-README.md') -Destination (Join-Path $workspace 'project-docs/README.md') -TrackedFiles $tracked
 
+    Install-ManagedFile -Source (Join-Path $assets 'work-README.md') -Destination (Join-Path $workspace 'work/README.md') -TrackedFiles $tracked
     $readmes = [ordered]@{
         'project-docs/decisions/README.md' = @('项目决策', '保存经确认且跨任务有效的可追溯决策。', 'Agent management', 'tracked', '只在决策被替代时保留旧文件并链接新决策。')
         'project-docs/versions/README.md' = @('版本边界', '保存经确认的版本目标、范围、完成标准和验证要求。', 'Agent management', 'tracked', '版本文件不可被后续版本覆盖。')
         'reference-projects/README.md' = @('参考工程', '保存简短索引和只读参考快照包装；正文位于各 project/。', 'Agent management wrappers; external reference bodies', 'wrappers tracked; bodies ignored', '只有来源可替代且用户同意时删除快照。')
         'sources/README.md' = @('源组集成副本', '每个源组拥有独立私有 Git 集成副本和可逆映射。', 'source-private Git', 'container tracked; integration ignored by root Git', '不得手工清理有基线或活动 worktree 的源组。')
-        'work/README.md' = @('Workstreams', '每个逻辑任务的独立源码 worktree、状态、工具和产物。', 'workstream metadata and source-private Git', 'metadata tracked; source bodies ignored', '任务终态且无未处置成果后按确认规则清理。')
         'workspace-management/README.md' = @('工作区管理', '保存配置、指南、schema、确定性工具、同步状态、证据和恢复数据。', 'Agent management', 'mixed; see child README files', '不得绕过受管脚本删除动态状态。')
         'workspace-management/config/README.md' = @('配置', '保存可移植配置和被忽略的本机路径绑定。', 'Agent management', 'portable JSON tracked; targets.local.json ignored', '只通过受管原子写入更新。')
         'workspace-management/guides/README.md' = @('运行指南', '根 AGENTS.md 按任务类型路由到这些 canonical 指南。', 'Agent management', 'tracked', '由初始化 Skill 按哈希刷新，不维护分叉副本。')
@@ -342,6 +342,8 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
         'add-source.ps1',
         'migrate-source-mappings.ps1',
         'set-user-git.ps1',
+        'set-source-project.ps1',
+        'manage-project-copy.ps1',
         'new-workstream.ps1',
         'update-workstream.ps1',
         'pin-workstream-dependency.ps1',
@@ -349,6 +351,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
         'invoke-build.ps1',
         'publish-workstream.ps1'
     )
+    Install-ManagedFile -Source (Join-Path $PSScriptRoot 'lib/project-copy-functions.ps1') -Destination (Join-Path $workspace 'workspace-management/tools/lib/project-copy-functions.ps1') -TrackedFiles $tracked
     Install-ManagedFile -Source $modulePath -Destination (Join-Path $workspace 'workspace-management/tools/lib/workspace-common.psm1') -TrackedFiles $tracked
     foreach ($scriptName in $runtimeScripts) {
         $sourceScript = Join-Path $PSScriptRoot $scriptName
@@ -374,8 +377,8 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
     }
     else {
         $workspaceConfig = [pscustomobject][ordered]@{
-            workspace_schema = 1
-            policy_version = 1
+            workspace_schema = 2
+            policy_version = 2
             workspace_state = 'initializing'
             layout_mode = 'pure'
             managed_root = '.'
@@ -386,7 +389,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
         Write-EwiJsonAtomic -Path $workspaceConfigPath -Value $workspaceConfig -SchemaPath $workspaceSchema
     }
 
-    $targets = [ordered]@{ schema = 1; sources = [ordered]@{}; targets = [ordered]@{}; field_metadata = [ordered]@{} }
+    $targets = [ordered]@{ schema = 2; sources = [ordered]@{}; targets = [ordered]@{}; field_metadata = [ordered]@{} }
     $local = [ordered]@{
         schema = 1
         workspace = [ordered]@{ root_path = $workspace.Replace('\', '/'); execution_environment = 'local' }
@@ -452,6 +455,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
 
         $hasUserSource = [string]$source.user_source -eq 'configured'
         $sourceValue = [ordered]@{
+            projects = [pscustomobject]@{}
             origin = [string]$source.origin
             user_source = [string]$source.user_source
             integration_path = $integrationRelative
@@ -521,6 +525,8 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
         })
     }
 
+    $targets = (ConvertTo-EwiCanonicalJson $targets) | ConvertFrom-Json -Depth 100 -DateKind String
+    $null = Initialize-EwiProjectDefinitions -Targets $targets -WorkspaceRoot $workspace
     Write-EwiJsonAtomic -Path $targetsPath -Value $targets -SchemaPath $targetsSchema
     Write-EwiJsonAtomic -Path $localPath -Value $local -SchemaPath $localSchema
     foreach ($relative in @('workspace-management/config/workspace.json', 'workspace-management/config/targets.json')) {

@@ -3,27 +3,54 @@
   "$id": "https://local.invalid/embedded-workspace-init/targets.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "sources", "targets", "field_metadata"],
+  "required": [
+    "schema",
+    "sources",
+    "targets",
+    "field_metadata"
+  ],
   "properties": {
-    "schema": { "type": "integer", "const": 1 },
+    "schema": {
+      "type": "integer",
+      "enum": [
+        1,
+        2
+      ]
+    },
     "sources": {
       "type": "object",
-      "propertyNames": { "$ref": "#/definitions/id" },
-      "additionalProperties": { "$ref": "#/definitions/source" }
+      "propertyNames": {
+        "$ref": "#/definitions/id"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/source"
+      }
     },
     "targets": {
       "type": "object",
-      "propertyNames": { "$ref": "#/definitions/id" },
-      "additionalProperties": { "$ref": "#/definitions/target" }
+      "propertyNames": {
+        "$ref": "#/definitions/id"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/target"
+      }
     },
     "field_metadata": {
       "type": "object",
-      "propertyNames": { "type": "string", "pattern": "^/" },
-      "additionalProperties": { "$ref": "#/definitions/fieldMetadata" }
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^/"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/fieldMetadata"
+      }
     }
   },
   "definitions": {
-    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
     "relativePath": {
       "type": "string",
       "pattern": "^(?:\\.|(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+)$"
@@ -31,25 +58,82 @@
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["origin", "user_source", "integration_path", "sync_strategy", "mapping_revision", "mappings"],
+      "required": [
+        "origin",
+        "user_source",
+        "integration_path",
+        "sync_strategy",
+        "mapping_revision",
+        "mappings"
+      ],
       "properties": {
-        "origin": { "type": "string", "enum": ["user-imported", "agent-created", "reference-promoted"] },
-        "user_source": { "type": "string", "enum": ["configured", "none"] },
-        "integration_path": { "$ref": "#/definitions/relativePath" },
-        "write_policy": { "type": "string", "enum": ["explicit-publish-only", "workspace-only"] },
-        "sync_strategy": { "type": "string", "enum": ["three-way", "none"] },
-        "mapping_revision": { "type": "integer", "minimum": 0 },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "user-imported",
+            "agent-created",
+            "reference-promoted"
+          ]
+        },
+        "user_source": {
+          "type": "string",
+          "enum": [
+            "configured",
+            "none"
+          ]
+        },
+        "integration_path": {
+          "$ref": "#/definitions/relativePath"
+        },
+        "write_policy": {
+          "type": "string",
+          "enum": [
+            "explicit-publish-only",
+            "workspace-only"
+          ]
+        },
+        "sync_strategy": {
+          "type": "string",
+          "enum": [
+            "three-way",
+            "none"
+          ]
+        },
+        "mapping_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
         "mappings": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["mapping_id", "integration_subpath", "kind"],
+            "required": [
+              "mapping_id",
+              "integration_subpath",
+              "kind"
+            ],
             "properties": {
-              "mapping_id": { "$ref": "#/definitions/id" },
-              "integration_subpath": { "$ref": "#/definitions/relativePath" },
-              "kind": { "type": "string", "const": "directory" }
+              "mapping_id": {
+                "$ref": "#/definitions/id"
+              },
+              "integration_subpath": {
+                "$ref": "#/definitions/relativePath"
+              },
+              "kind": {
+                "type": "string",
+                "const": "directory"
+              }
             }
+          }
+        },
+        "projects": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/id"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/sourceProject"
           }
         }
       }
@@ -57,90 +141,275 @@
     "target": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "path", "project", "builds"],
+      "required": [
+        "source",
+        "path",
+        "project",
+        "builds"
+      ],
       "properties": {
-        "source": { "$ref": "#/definitions/id" },
-        "path": { "$ref": "#/definitions/relativePath" },
-        "mcu": { "type": ["string", "null"] },
+        "source": {
+          "$ref": "#/definitions/id"
+        },
+        "path": {
+          "$ref": "#/definitions/relativePath"
+        },
+        "mcu": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "project": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "entry", "generator"],
+          "required": [
+            "type",
+            "entry",
+            "generator"
+          ],
           "properties": {
-            "type": { "type": "string", "minLength": 1 },
-            "entry": { "$ref": "#/definitions/relativePath" },
+            "type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "entry": {
+              "$ref": "#/definitions/relativePath"
+            },
             "generator": {
               "oneOf": [
-                { "$ref": "#/definitions/relativePath" },
-                { "type": "null" }
+                {
+                  "$ref": "#/definitions/relativePath"
+                },
+                {
+                  "type": "null"
+                }
               ]
             }
           }
         },
         "builds": {
           "type": "object",
-          "propertyNames": { "$ref": "#/definitions/id" },
-          "additionalProperties": { "$ref": "#/definitions/build" }
+          "propertyNames": {
+            "$ref": "#/definitions/id"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/build"
+          }
         },
         "generated": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["policy", "config"],
+          "required": [
+            "policy",
+            "config"
+          ],
           "properties": {
-            "policy": { "type": "string" },
-            "config": { "type": "array", "items": { "$ref": "#/definitions/relativePath" } }
+            "policy": {
+              "type": "string"
+            },
+            "config": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/relativePath"
+              }
+            }
           }
         },
         "verification": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "test_command": { "type": ["object", "null"] },
-            "simulator_command": { "type": ["object", "null"] }
+            "test_command": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "simulator_command": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
           }
         },
         "hardware": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "warnings": { "type": "array", "items": { "type": "string" } }
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
         }
       }
     },
     "build": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["configuration", "cwd", "default_execution_context", "command", "command_state", "output_paths", "generated_write_paths", "outputs"],
+      "required": [
+        "configuration",
+        "cwd",
+        "default_execution_context",
+        "command",
+        "command_state",
+        "output_paths",
+        "generated_write_paths",
+        "outputs"
+      ],
       "properties": {
-        "configuration": { "type": "string", "minLength": 1 },
-        "cwd": { "$ref": "#/definitions/relativePath" },
-        "default_execution_context": { "type": "string", "const": "agent-copy" },
+        "configuration": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cwd": {
+          "$ref": "#/definitions/relativePath"
+        },
+        "default_execution_context": {
+          "type": "string",
+          "const": "agent-copy"
+        },
         "command": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["tool", "args"],
+          "required": [
+            "tool",
+            "args"
+          ],
           "properties": {
-            "tool": { "$ref": "#/definitions/id" },
-            "args": { "type": "array", "items": { "type": "string" } }
+            "tool": {
+              "$ref": "#/definitions/id"
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         },
-        "command_state": { "type": "string", "enum": ["candidate", "verified", "unavailable", "unconfirmed", "stale"] },
-        "output_paths": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/relativePath" } },
-        "generated_write_paths": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/relativePath" } },
-        "outputs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/relativePath" } }
+        "command_state": {
+          "type": "string",
+          "enum": [
+            "candidate",
+            "verified",
+            "unavailable",
+            "unconfirmed",
+            "stale"
+          ]
+        },
+        "output_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/relativePath"
+          }
+        },
+        "generated_write_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/relativePath"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/relativePath"
+          }
+        }
       }
     },
     "fieldMetadata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provenance", "freshness"],
+      "required": [
+        "provenance",
+        "freshness"
+      ],
       "properties": {
-        "provenance": { "type": "string", "enum": ["detected", "confirmed", "imported"] },
-        "verification": { "type": "string", "enum": ["unverified", "verified", "failed"] },
-        "freshness": { "type": "string", "enum": ["current", "stale", "conflicted"] },
-        "evidence_ref": { "$ref": "#/definitions/relativePath" }
+        "provenance": {
+          "type": "string",
+          "enum": [
+            "detected",
+            "confirmed",
+            "imported"
+          ]
+        },
+        "verification": {
+          "type": "string",
+          "enum": [
+            "unverified",
+            "verified",
+            "failed"
+          ]
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "current",
+            "stale",
+            "conflicted"
+          ]
+        },
+        "evidence_ref": {
+          "$ref": "#/definitions/relativePath"
+        }
+      }
+    },
+    "sourceProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "shared_paths"
+      ],
+      "properties": {
+        "root": {
+          "$ref": "#/definitions/relativePath"
+        },
+        "shared_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/relativePath"
+          }
+        }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema": {
+            "const": 2
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "sources": {
+            "additionalProperties": {
+              "required": [
+                "projects"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
 }

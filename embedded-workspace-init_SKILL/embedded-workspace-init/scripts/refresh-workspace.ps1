@@ -10,7 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'lib/workspace-common.psm1') -Force
 
-$context = Assert-EwiActiveWorkspace -WorkspaceRoot $WorkspaceRoot
+$context = Assert-EwiActiveWorkspace -WorkspaceRoot $WorkspaceRoot -AllowLegacyPolicy
 $root = $context.root
 $assets = Resolve-EwiPath (Join-Path $PSScriptRoot '../assets')
 $references = Resolve-EwiPath (Join-Path $PSScriptRoot '../references')
@@ -26,7 +26,7 @@ $guideNames = @(
 $upgradeReasons = [Collections.Generic.List[string]]::new()
 $validationErrors = [Collections.Generic.List[string]]::new()
 
-if ($context.workspace.workspace_schema -ne 1 -or $context.workspace.policy_version -ne 1) {
+if ($context.workspace.workspace_schema -ne 2 -or $context.workspace.policy_version -ne 2) {
     $upgradeReasons.Add("Unsupported current versions: schema=$($context.workspace.workspace_schema), policy=$($context.workspace.policy_version).")
 }
 if ((Test-Path -LiteralPath (Join-Path $root 'AGENTS.override.md')) -or (Test-Path -LiteralPath (Join-Path $root '.worktreeinclude'))) {
@@ -34,6 +34,7 @@ if ((Test-Path -LiteralPath (Join-Path $root 'AGENTS.override.md')) -or (Test-Pa
 }
 
 $canonical = [ordered]@{
+    'work/README.md' = Join-Path $assets 'work-README.md'
     'AGENTS.md' = Join-Path $assets 'AGENTS.md'
     'README.md' = Join-Path $assets 'README.md'
     'USER_GUIDE.md' = Join-Path $assets 'USER_GUIDE.md'
@@ -45,8 +46,11 @@ foreach ($guideName in $guideNames) {
 foreach ($schema in Get-ChildItem -LiteralPath (Join-Path $assets 'schemas') -Filter '*.json' -File) {
     $canonical["workspace-management/schemas/$($schema.Name)"] = $schema.FullName
 }
+$canonical['workspace-management/tools/lib/project-copy-functions.ps1'] = Join-Path $PSScriptRoot 'lib/project-copy-functions.ps1'
+$canonical['workspace-management/templates/workstream.json'] = Join-Path $assets 'workstream.json'
+$canonical['workspace-management/templates/workstream-README.md'] = Join-Path $assets 'workstream-README.md'
 $canonical['workspace-management/tools/lib/workspace-common.psm1'] = Join-Path $PSScriptRoot 'lib/workspace-common.psm1'
-foreach ($name in @('plan-migration.ps1', 'detect-targets.ps1', 'import-reference.ps1', 'promote-reference.ps1', 'create-reference-copy.ps1', 'import-sources.ps1', 'add-source.ps1', 'migrate-source-mappings.ps1', 'set-user-git.ps1', 'new-workstream.ps1', 'update-workstream.ps1', 'pin-workstream-dependency.ps1', 'set-build-config.ps1', 'invoke-build.ps1', 'publish-workstream.ps1')) {
+foreach ($name in @('plan-migration.ps1', 'detect-targets.ps1', 'import-reference.ps1', 'promote-reference.ps1', 'create-reference-copy.ps1', 'import-sources.ps1', 'add-source.ps1', 'migrate-source-mappings.ps1', 'set-user-git.ps1', 'set-source-project.ps1', 'manage-project-copy.ps1', 'new-workstream.ps1', 'update-workstream.ps1', 'pin-workstream-dependency.ps1', 'set-build-config.ps1', 'invoke-build.ps1', 'publish-workstream.ps1')) {
     $canonical["workspace-management/tools/$name"] = Join-Path $PSScriptRoot $name
 }
 foreach ($relative in $canonical.Keys) {
@@ -55,7 +59,7 @@ foreach ($relative in $canonical.Keys) {
         $upgradeReasons.Add("Missing managed file: $relative")
     }
     elseif ((Get-EwiSha256 $deployed) -ne (Get-EwiSha256 $canonical[$relative])) {
-        $upgradeReasons.Add("Managed file differs from policy version 1: $relative")
+        $upgradeReasons.Add("Managed file differs from policy version 2: $relative")
     }
 }
 

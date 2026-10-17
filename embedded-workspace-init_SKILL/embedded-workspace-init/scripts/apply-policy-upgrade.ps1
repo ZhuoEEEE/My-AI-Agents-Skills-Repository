@@ -14,14 +14,18 @@ if ((Get-EwiTextSha256 $payloadJson) -ne $ApprovalDigest) { throw 'Plan payload 
 $plan = $payloadJson | ConvertFrom-Json -Depth 50 -ErrorAction Stop
 if ($plan.schema -ne 1 -or $plan.route -ne 'policy-upgrade' -or $null -eq $plan.policy_upgrade) { throw 'The approved payload is not a version 1 policy upgrade plan.' }
 $workspace = Resolve-EwiPath ([string]$plan.workspace_root)
-$context = Assert-EwiActiveWorkspace -WorkspaceRoot $workspace
-$operations = @($plan.policy_upgrade.operations)
+$context = Assert-EwiActiveWorkspace -WorkspaceRoot $workspace -AllowLegacyPolicy
+$stateOperations = @($plan.policy_upgrade.state_operations)
+$operations = @($plan.policy_upgrade.operations) + @($stateOperations)
 $sourceStateMigrations = @($plan.policy_upgrade.source_state_migrations)
 if ($operations.Count -eq 0 -and $null -eq $plan.policy_upgrade.local_state_migration -and $sourceStateMigrations.Count -eq 0) { throw 'The approved policy plan contains no operation.' }
 
 function Get-CanonicalSource {
     param([Parameter(Mandatory)] [string] $RelativePath)
+    if ($RelativePath -eq 'work/README.md') { return Join-Path $PSScriptRoot '../assets/work-README.md' }
     if ($RelativePath -in @('AGENTS.md', 'README.md', 'USER_GUIDE.md')) { return Join-Path $PSScriptRoot "../assets/$RelativePath" }
+    if ($RelativePath -eq 'workspace-management/tools/lib/project-copy-functions.ps1') { return Join-Path $PSScriptRoot 'lib/project-copy-functions.ps1' }
+    if ($RelativePath -like 'workspace-management/templates/*') { return Join-Path $PSScriptRoot ('../assets/' + [IO.Path]::GetFileName($RelativePath)) }
     if ($RelativePath -eq '.gitignore') { return Join-Path $PSScriptRoot '../assets/gitignore' }
     if ($RelativePath -like 'workspace-management/guides/*') { return Join-Path $PSScriptRoot ('../references/' + [IO.Path]::GetFileName($RelativePath)) }
     if ($RelativePath -like 'workspace-management/schemas/*') { return Join-Path $PSScriptRoot ('../assets/schemas/' + [IO.Path]::GetFileName($RelativePath)) }
@@ -36,8 +40,13 @@ foreach ($operation in $operations) {
     $target = Join-EwiContainedPath -Root $workspace -RelativePath $relative
     $currentHash = if (Test-Path -LiteralPath $target -PathType Leaf) { Get-EwiSha256 $target } else { $null }
     if ($currentHash -ne $operation.current_hash) { throw "Managed file changed after policy planning: $relative" }
-    $canonical = Resolve-EwiPath (Get-CanonicalSource $relative)
-    if ((Get-EwiSha256 $canonical) -ne $operation.target_hash) { throw "Canonical policy file changed after planning: $relative" }
+    if ($operation.PSObject.Properties.Name -contains 'content_base64') {
+        $content = [Convert]::FromBase64String($operation.content_base64)
+        if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($content)).ToLowerInvariant() -ne $operation.target_hash) { throw 'State migration content hash mismatch.' }
+    } else {
+        $canonical = Resolve-EwiPath (Get-CanonicalSource $relative)
+        if ((Get-EwiSha256 $canonical) -ne $operation.target_hash) { throw "Canonical policy file changed after planning: $relative" }
+    }
     $originals[$relative] = if ($null -eq $currentHash) { $null } else { [IO.File]::ReadAllBytes($target) }
 }
 
@@ -62,11 +71,14 @@ foreach ($sourceProperty in $targets.sources.PSObject.Properties) {
 }
 
 $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeoutSeconds -ScriptBlock {
-    $null = Assert-EwiActiveWorkspace -WorkspaceRoot $workspace
+    $null = Assert-EwiActiveWorkspace -WorkspaceRoot $workspace -AllowLegacyPolicy
     foreach ($operation in $operations) {
         $target = Join-EwiContainedPath -Root $workspace -RelativePath ([string]$operation.path)
         $currentHash = if (Test-Path -LiteralPath $target -PathType Leaf) { Get-EwiSha256 $target } else { $null }
         if ($currentHash -ne $operation.current_hash) { throw "Managed file changed after lock acquisition: $($operation.path)" }
+        if ($operation.PSObject.Properties.Name -notcontains 'content_base64') {
+            if ((Get-EwiSha256 (Get-CanonicalSource $operation.path)) -ne $operation.target_hash) { throw "Canonical policy file changed after lock acquisition: $($operation.path)" }
+        }
     }
     if ((Get-EwiSha256 $localPath) -ne [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($localOriginal)).ToLowerInvariant()) { throw 'Local configuration changed after policy planning.' }
     foreach ($migration in $sourceStateMigrations) {
@@ -91,12 +103,17 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
                 [IO.File]::WriteAllBytes($snapshot, [byte[]]$originals[$relative])
                 if ((Get-EwiSha256 $snapshot) -ne $operation.current_hash) { throw "Policy snapshot mismatch: $relative" }
             }
-            $canonical = Resolve-EwiPath (Get-CanonicalSource $relative)
+            $stateOperation = $operation.PSObject.Properties.Name -contains 'content_base64'
+            if (-not $stateOperation) { $canonical = Resolve-EwiPath (Get-CanonicalSource $relative) }
             $parent = Split-Path -Parent $target
             if (-not (Test-Path -LiteralPath $parent)) { $null = New-Item -ItemType Directory -Path $parent }
             $temporary = Join-Path $parent ('.policy-' + [Guid]::NewGuid().ToString('N') + '.tmp')
             try {
-                [IO.File]::Copy($canonical, $temporary, $true)
+                if ($stateOperation) {
+                    $stateValue = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($operation.content_base64)) | ConvertFrom-Json -Depth 100 -DateKind String
+                    Write-EwiJsonAtomic -Path $temporary -Value $stateValue -SchemaPath (Join-Path $workspace ('workspace-management/schemas/' + $operation.schema_name))
+                }
+                else { [IO.File]::Copy($canonical, $temporary, $true) }
                 if ((Get-EwiSha256 $temporary) -ne $operation.target_hash) { throw "Canonical copy mismatch: $relative" }
                 [IO.File]::Move($temporary, $target, $true)
             }
@@ -134,6 +151,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
         foreach ($operation in $operations) {
             if ((Get-EwiSha256 (Join-EwiContainedPath -Root $workspace -RelativePath ([string]$operation.path))) -ne $operation.target_hash) { throw "Policy verification failed: $($operation.path)" }
         }
+        foreach ($stateOperation in $stateOperations) { $null = Read-EwiJson (Join-Path $workspace $stateOperation.path) -SchemaPath (Join-Path $workspace ('workspace-management/schemas/' + $stateOperation.schema_name)) }
         $manifestPath = Join-Path $historyRoot 'manifest.json'
         if (-not (Test-Path -LiteralPath $historyRoot)) { $null = New-Item -ItemType Directory -Path $historyRoot }
         $manifest = [pscustomobject][ordered]@{
@@ -146,7 +164,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $workspace -TimeoutSeconds $MutexTimeo
             target_workspace_schema = [int]$plan.policy_upgrade.target_workspace_schema
             current_policy_version = [int]$plan.policy_upgrade.current_policy_version
             target_policy_version = [int]$plan.policy_upgrade.target_policy_version
-            operations = @($operations)
+            operations = @($operations | Select-Object path,action,current_hash,target_hash)
             local_state_migration = $plan.policy_upgrade.local_state_migration
             source_state_migrations = @($sourceStateMigrations)
             archived_root_rule = $archivedRootRule

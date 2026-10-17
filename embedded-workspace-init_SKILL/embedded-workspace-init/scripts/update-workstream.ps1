@@ -20,7 +20,7 @@ $targets = Read-EwiJson -Path $targetsPath -SchemaPath $targetsSchema
 $schema = Join-Path $root 'workspace-management/schemas/workstream.schema.json'
 $path = Join-Path $root "work/$WorkstreamId/workstream.json"
 $current = Read-EwiJson -Path $path -SchemaPath $schema
-$plannedScope = if ([string]::IsNullOrWhiteSpace($ScopeJson)) { @($current.scope) } else { @($ScopeJson | ConvertFrom-Json -Depth 30 -ErrorAction Stop) }
+$plannedScope = @(if ([string]::IsNullOrWhiteSpace($ScopeJson)) { $current.scope } else { $ScopeJson | ConvertFrom-Json -Depth 30 -ErrorAction Stop })
 $plannedStatus = if ([string]::IsNullOrWhiteSpace($Status)) { [string]$current.status } else { $Status }
 $plannedUnresolved = if ($null -eq $HasUnresolvedChanges) { [bool]$current.has_unresolved_changes } else { [bool]$HasUnresolvedChanges }
 
@@ -33,13 +33,11 @@ function Test-ScopeOverlap {
 
 function Validate-Scope {
     param([object[]] $Scope)
-    if ($Scope.Count -eq 0) { throw 'A workstream requires at least one scope entry.' }
+    if ($Scope.Count -eq 0 -and @($current.agent.refs.PSObject.Properties).Count -gt 0) { throw 'Keep source scope for existing source history.' }
     $scopeSourceIds = @($Scope | ForEach-Object { [string]$_.source_id })
     if (@($scopeSourceIds | Sort-Object -Unique).Count -ne $scopeSourceIds.Count) { throw 'A workstream scope may contain each source exactly once.' }
-    $refSourceIds = @($current.agent.refs.PSObject.Properties.Name | Sort-Object)
-    if ((ConvertTo-EwiCanonicalJson @($scopeSourceIds | Sort-Object)) -cne (ConvertTo-EwiCanonicalJson $refSourceIds)) {
-        throw 'Scope sources must exactly match the workstream mounted refs; create a new workstream to change source mounts.'
-    }
+    $refSourceIds = @($current.agent.refs.PSObject.Properties | ForEach-Object Name | Sort-Object)
+    if (@($refSourceIds | Where-Object { $_ -notin $scopeSourceIds }).Count -gt 0) { throw 'Keep existing source refs in scope; release engineering copies separately.' }
     foreach ($entry in $Scope) {
         $source = $targets.sources.PSObject.Properties[[string]$entry.source_id]
         if ($null -eq $source) { throw "Unknown source in scope: $($entry.source_id)" }
@@ -78,6 +76,20 @@ function Get-ScopeConflicts {
 }
 
 Validate-Scope $plannedScope
+function Invoke-CompletionProjectRelease {
+    $releases = @()
+    $finished = Read-EwiJson -Path $path -SchemaPath $schema
+    foreach ($sourceProperty in $finished.agent.refs.PSObject.Properties) {
+        $ids = @($sourceProperty.Value.projects.PSObject.Properties | Where-Object { $_.Value.state -eq 'mounted' } | ForEach-Object Name)
+        foreach ($id in $ids) {
+            $arguments = @{ WorkspaceRoot = $root; WorkstreamId = $WorkstreamId; SourceId = $sourceProperty.Name; ProjectId = @($id); Action = 'Release' }
+            $release = & (Join-Path $PSScriptRoot 'manage-project-copy.ps1') @arguments | ConvertFrom-Json -Depth 50
+            if ($release.can_apply -and $release.changed) { $release = & (Join-Path $PSScriptRoot 'manage-project-copy.ps1') @arguments -Apply -ExpectedPlanDigest $release.plan_digest | ConvertFrom-Json -Depth 50 }
+            $releases += $release
+        }
+    }
+    return $releases
+}
 $conflicts = @(Get-ScopeConflicts $plannedScope)
 if ($conflicts.Count -gt 0) {
     [pscustomobject][ordered]@{ status = 'scope-conflict'; changed = $false; conflicts = $conflicts } | ConvertTo-Json -Depth 10
@@ -86,7 +98,9 @@ if ($conflicts.Count -gt 0) {
 $changed = (ConvertTo-EwiCanonicalJson @($current.scope)) -cne (ConvertTo-EwiCanonicalJson @($plannedScope)) -or
     $current.status -ne $plannedStatus -or [bool]$current.has_unresolved_changes -ne $plannedUnresolved
 if (-not $changed) {
-    [pscustomobject][ordered]@{ status = 'unchanged'; workstream_id = $WorkstreamId; changed = $false } | ConvertTo-Json
+    $unchanged = [pscustomobject][ordered]@{ status = 'unchanged'; workstream_id = $WorkstreamId; changed = $false }
+    if ($plannedStatus -eq 'completed' -and -not $plannedUnresolved) { $unchanged | Add-Member -NotePropertyName project_releases -NotePropertyValue @(Invoke-CompletionProjectRelease) }
+    $unchanged | ConvertTo-Json -Depth 50
     return
 }
 $initialHash = Get-EwiSha256 $path
@@ -100,6 +114,24 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
     if ($lockedConflicts.Count -gt 0) { throw 'Workstream scope began conflicting after lock acquisition.' }
     try {
         $manifest = Read-EwiJson -Path $path -SchemaPath $schema
+        foreach ($entry in $plannedScope) {
+            if ($null -eq $manifest.agent.refs.PSObject.Properties[[string]$entry.source_id]) {
+                $ref = New-EwiSourceRef -WorkspaceRoot $root -Source $targets.sources.PSObject.Properties[[string]$entry.source_id].Value -WorkstreamId $WorkstreamId -SourceId ([string]$entry.source_id)
+                $manifest.agent.refs | Add-Member -NotePropertyName ([string]$entry.source_id) -NotePropertyValue $ref
+            }
+        }
+        foreach ($entry in $plannedScope) {
+            if ($null -eq $manifest.agent.refs.PSObject.Properties[[string]$entry.source_id]) {
+                $ref = New-EwiSourceRef -WorkspaceRoot $root -Source $targets.sources.PSObject.Properties[[string]$entry.source_id].Value -WorkstreamId $WorkstreamId -SourceId ([string]$entry.source_id)
+                $manifest.agent.refs | Add-Member -NotePropertyName ([string]$entry.source_id) -NotePropertyValue $ref
+            }
+        }
+        foreach ($entry in $plannedScope) {
+            if ($null -eq $manifest.agent.refs.PSObject.Properties[[string]$entry.source_id]) {
+                $ref = New-EwiSourceRef -WorkspaceRoot $root -Source $targets.sources.PSObject.Properties[[string]$entry.source_id].Value -WorkstreamId $WorkstreamId -SourceId ([string]$entry.source_id)
+                $manifest.agent.refs | Add-Member -NotePropertyName ([string]$entry.source_id) -NotePropertyValue $ref
+            }
+        }
         $manifest.scope = @($plannedScope)
         $manifest.status = $plannedStatus
         $manifest.has_unresolved_changes = $plannedUnresolved
@@ -115,4 +147,7 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
     }
 }
 
-$result | ConvertTo-Json -Depth 15
+if ($plannedStatus -eq 'completed' -and -not $plannedUnresolved) {
+    $result | Add-Member -NotePropertyName project_releases -NotePropertyValue @(Invoke-CompletionProjectRelease)
+}
+$result | ConvertTo-Json -Depth 50

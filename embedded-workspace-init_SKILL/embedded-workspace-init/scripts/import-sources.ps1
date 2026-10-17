@@ -19,6 +19,7 @@ $local = Read-EwiJson -Path $localPath -SchemaPath (Join-Path $root 'workspace-m
 $sourceProperty = $targets.sources.PSObject.Properties[$SourceId]
 $localProperty = $local.sources.PSObject.Properties[$SourceId]
 if ($null -eq $sourceProperty -or $null -eq $localProperty) { throw "Unknown or locally unbound source: $SourceId" }
+Assert-EwiSourceCopyReady $root $SourceId
 $source = $sourceProperty.Value
 $sourceLocal = $localProperty.Value
 if ($source.user_source -ne 'configured' -or $source.sync_strategy -ne 'three-way') {
@@ -222,7 +223,8 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'work') -Filter 'w
         continue
     }
     $worktree = Join-EwiContainedPath -Root $root -RelativePath ([string]$ref.Value.worktree)
-    $status = @(Get-MeaningfulGitStatus -Repository $worktree -IgnoredOutputPatterns $outputPatterns)
+    $physical = Test-Path -LiteralPath (Join-Path $worktree '.git')
+    $status = @(if ($physical) { Get-MeaningfulGitStatus -Repository $worktree -IgnoredOutputPatterns $outputPatterns })
     if ($status.Count -gt 0) {
         $blockers.Add("Workstream '$($workstream.id)' has uncommitted changes; checkpoint it before import.")
     }
@@ -234,12 +236,14 @@ foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'work') -Filter 'w
         manifest = $workstream
         worktree = $worktree
         branch = [string]$ref.Value.branch
-        old_head = (Invoke-EwiGit -Repository $worktree -ArgumentList @('rev-parse', 'HEAD')).StdOut.Trim()
+        old_head = Get-EwiSourceRefHead $integrationRoot $ref.Value
+        physical = $physical
+        source_ref = $ref.Value
     })
 }
 
 foreach ($workstreamItem in $workstreams) {
-    $diff = Invoke-EwiGit -Repository $workstreamItem.worktree -ArgumentList @('diff', '--name-status', '--no-renames', "$($state.user_baseline_commit)..$($workstreamItem.old_head)")
+    $diff = Invoke-EwiGit -Repository $integrationRoot -ArgumentList @('diff', '--name-status', '--no-renames', "$($state.user_baseline_commit)..$($workstreamItem.old_head)")
     foreach ($line in @($diff.StdOut -split "`r?`n")) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         $parts = $line -split "`t", 2
@@ -355,15 +359,30 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
 
         foreach ($workstreamItem in $workstreams) {
             $workstreamSnapshots[$workstreamItem.path] = [IO.File]::ReadAllBytes($workstreamItem.path)
-            $null = Invoke-EwiGit -Repository $workstreamItem.worktree -ArgumentList @('rebase', '--onto', $newCommit, $oldBaseline, $workstreamItem.branch)
-            $rebased.Add($workstreamItem)
+            if ($workstreamItem.source_ref.checkout_state -eq 'none') { continue }
+            if (-not $workstreamItem.physical) {
+                $null = Invoke-EwiGit $integrationRoot @('worktree','add','--no-checkout',$workstreamItem.worktree,$workstreamItem.branch)
+                Set-EwiProjectSelection $workstreamItem.worktree ([pscustomobject]@{})
+                $null = Invoke-EwiGit $workstreamItem.worktree @('read-tree','-mu','HEAD')
+            }
+            try {
+                $null = Invoke-EwiGit -Repository $workstreamItem.worktree -ArgumentList @('rebase', '--onto', $newCommit, $oldBaseline, $workstreamItem.branch)
+                $rebased.Add($workstreamItem)
+                if ($workstreamItem.physical -and $workstreamItem.source_ref.checkout_state -ne 'legacy-full') { Set-EwiProjectSelection $workstreamItem.worktree $workstreamItem.source_ref.projects }
+            } finally {
+                if (-not $workstreamItem.physical) {
+                    $null = Invoke-EwiGit $workstreamItem.worktree @('rebase','--abort') -AllowFailure
+                    $null = Invoke-EwiGit $integrationRoot @('worktree','remove',$workstreamItem.worktree)
+                }
+            }
         }
         foreach ($workstreamItem in $workstreams) {
             $manifest = $workstreamItem.manifest
             $ref = $manifest.agent.refs.PSObject.Properties[$SourceId].Value
             $ref.user_baseline_commit = $newCommit
             $ref.task_base_commit = $newCommit
-            $ref.head_commit = $null
+            $ref.head_commit = Get-EwiSourceRefHead $integrationRoot $ref
+            foreach ($project in $ref.projects.PSObject.Properties) { $project.Value.frozen_commit = $ref.head_commit }
             $manifest.updated_at = Get-EwiTimestamp
             Write-EwiJsonAtomic -Path $workstreamItem.path -Value $manifest -SchemaPath (Join-Path $root 'workspace-management/schemas/workstream.schema.json')
         }
@@ -394,8 +413,11 @@ $result = Invoke-EwiLocked -WorkspaceRoot $root -TimeoutSeconds $MutexTimeoutSec
     }
     catch {
         foreach ($workstreamItem in @($workstreams)) {
-            $null = Invoke-EwiGit -Repository $workstreamItem.worktree -ArgumentList @('rebase', '--abort') -AllowFailure
-            $null = Invoke-EwiGit -Repository $workstreamItem.worktree -ArgumentList @('reset', '--hard', $workstreamItem.old_head) -AllowFailure
+            if ($workstreamItem.physical) {
+                $null = Invoke-EwiGit -Repository $workstreamItem.worktree -ArgumentList @('rebase', '--abort') -AllowFailure
+                $null = Invoke-EwiGit -Repository $workstreamItem.worktree -ArgumentList @('reset', '--hard', $workstreamItem.old_head) -AllowFailure
+                if ($workstreamItem.source_ref.checkout_state -ne 'legacy-full') { Set-EwiProjectSelection $workstreamItem.worktree $workstreamItem.source_ref.projects }
+            } elseif ($workstreamItem.source_ref.checkout_state -ne 'none') { $null = Invoke-EwiGit $integrationRoot @('update-ref', "refs/heads/$($workstreamItem.branch)", $workstreamItem.old_head) }
             if ($workstreamSnapshots.Contains($workstreamItem.path)) {
                 [IO.File]::WriteAllBytes($workstreamItem.path, $workstreamSnapshots[$workstreamItem.path])
             }

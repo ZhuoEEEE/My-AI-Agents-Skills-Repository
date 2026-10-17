@@ -85,6 +85,16 @@ if ($BuildContext -eq 'agent-copy') {
     if ([string]::IsNullOrWhiteSpace($WorkstreamId)) { throw 'agent-copy build requires -WorkstreamId.' }
     $workstreamPath = Join-Path $root "work/$WorkstreamId/workstream.json"
     $workstream = Read-EwiJson -Path $workstreamPath -SchemaPath (Join-Path $root 'workspace-management/schemas/workstream.schema.json')
+    Assert-EwiSourceCopyReady $root ([string]$target.source)
+    Assert-EwiTargetMounted $workstream $source $target
+    foreach ($argument in @($build.command.args)) {
+        $argumentText = [string]$argument
+        if ((Test-Path -LiteralPath $argument -PathType Leaf) -and [IO.Path]::GetExtension($argument) -in @('.txt','.ps1','.json','.cmd','.bat') -and (Get-Item -LiteralPath $argument).Length -lt 1MB) { $argumentText += [IO.File]::ReadAllText($argument) }
+        $normalized = $argumentText.Replace('\','/').Replace('/tools/../','/')
+        foreach ($match in [regex]::Matches($normalized, '(?i)/work/(\d{8}-[a-z0-9-]+-[a-f0-9]{4})/')) {
+            if ($match.Groups[1].Value -ne $WorkstreamId) { throw 'Build command references another task; configure a command for the selected engineering copy.' }
+        }
+    }
     $sourceRef = $workstream.agent.refs.PSObject.Properties[[string]$target.source]
     if ($null -eq $sourceRef) { throw "Workstream does not mount source '$($target.source)'." }
     $sourceRoot = Join-EwiContainedPath -Root $root -RelativePath ([string]$sourceRef.Value.worktree)

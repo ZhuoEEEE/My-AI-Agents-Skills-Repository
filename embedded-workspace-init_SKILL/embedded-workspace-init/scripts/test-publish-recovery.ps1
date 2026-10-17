@@ -3,6 +3,7 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'fixture-project-copies.ps1')
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('ewipr-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 $assertions = 0
@@ -137,6 +138,7 @@ $null = New-Item -ItemType Directory -Path $directory -Force
 
     $scope = @([ordered]@{ source_id = 'source'; targets = @($targetId); paths = @([ordered]@{ path = '.'; access = 'write' }) }) | ConvertTo-Json -Depth 10 -Compress
     $workstream = (& (Join-Path $PSScriptRoot 'new-workstream.ps1') -WorkspaceRoot $workspace -Title $Name -ScopeJson $scope | Out-String) | ConvertFrom-Json -Depth 40
+    Mount-FixtureProjectCopies -WorkspaceRoot $workspace -Workstream $workstream
     $manifest = Get-Content -Raw -LiteralPath (Join-Path $workspace "$($workstream.path)\workstream.json") | ConvertFrom-Json -Depth 40
     return [pscustomobject][ordered]@{
         source = $source

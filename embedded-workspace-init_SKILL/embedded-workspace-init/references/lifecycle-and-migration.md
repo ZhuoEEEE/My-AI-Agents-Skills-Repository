@@ -4,7 +4,7 @@ Read this guide for initialization, refresh, legacy-workspace migration, or poli
 
 ## Supported Boundary
 
-Version 1 supports one local Windows host, local paths, a single pure Agent root, and Windows Named Mutex coordination. It does not promise cross-host, network-share, or WSL/Windows concurrency. The managed root must never contain a user-authoritative source, and no source may contain the managed root, including through symlinks, junctions, case aliases, or mapped subpaths.
+Policy 2 supports one local Windows host, local paths, a single pure Agent root, and Windows Named Mutex coordination. It does not promise cross-host, network-share, or WSL/Windows concurrency. The managed root must never contain a user-authoritative source, and no source may contain the managed root, including through symlinks, junctions, case aliases, or mapped subpaths.
 
 Daily Codex tasks must open the registered real root in a `Local` environment. Do not use a Codex-managed/permanent worktree for that root or add `sources/*/integration`, a source-private linked worktree, or a user project as a separate Codex project. Do not use `.worktreeinclude` to copy ignored managed state into an outer worktree.
 
@@ -57,7 +57,7 @@ A fact-only refresh may add missing detected facts, new targets, or new source c
 
 Any layout, policy, fixed structure, mapping, or schema change is a managed upgrade. Before approval, show current and target versions, exact file operations, mapping and Git effects, workstream/build/sync impact, snapshots, validation, and rollback. Then stop. Before approval, do not mix in routine fact updates.
 
-After approval, use `apply-policy-upgrade.ps1` with the unchanged plan payload and approval digest. It reacquires the workspace mutex, rereads everything, checkpoints only explicit affected paths, snapshots management files, archives a replaced root rule, applies the defined version-specific migration, validates, and records a dated history entry. It rolls back management changes on failure and never publishes source as a side effect. Version 1 has no generic future migration engine.
+After approval, use `apply-policy-upgrade.ps1` with the unchanged plan payload and approval digest. It reacquires the workspace mutex, rereads everything, checkpoints only explicit affected paths, snapshots management files, archives a replaced root rule, applies the defined version-specific migration, validates, and records a dated history entry. It rolls back management changes on failure and never publishes source as a side effect. Only the defined policy-1-to-2 transformation is supported: register recognizable complete project roots, link existing targets without changing IDs, convert old task manifests to `legacy-full` or `released`, and deploy exact canonical assets plus schema-valid transformed state. Recheck current/canonical hashes under lock; snapshot and roll back all affected files and indexes. Preserve source commits, mappings, baselines and dirty paused files. Physical historical release is a separate post-upgrade operation using the same project-copy tool, never an upgrade side effect. Unknown future versions stop.
 
 ## Idempotence And Stop Conditions
 

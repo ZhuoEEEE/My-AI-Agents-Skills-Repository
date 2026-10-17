@@ -5,7 +5,7 @@ This root is the only Codex project entry. Start every task here in `Local`. Do 
 ## Mandatory Start Checks
 
 1. Read `workspace-management/config/workspace.json` and require `workspace_state: active`, `layout_mode: pure`, and `managed_root: .`. An `initializing` workspace permits only initialization, inspection, or abandonment.
-2. Read `targets.local.json`, resolve the real root, and require it to equal `workspace.root_path`. Check only relevant user/legacy paths for readability. On failure, report and stop; do not change permissions.
+2. Read `workspace-management/config/targets.local.json`, resolve the real root, and require it to equal `workspace.root_path`. Check only relevant user/legacy paths for readability. On failure, report and stop; do not change permissions.
 3. Read-only/inspection/no-update means zero writes: no refresh, directory, workstream, log, evidence, backup, Git object, build, or generator output.
 4. Load only relevant target/source/build/workstream state and one needed guide. Do not load every guide, reference, index, old workspace, or transaction.
 5. Run lightweight source/target detection in report mode. Outside read-only mode, import saved user changes only through the managed script before editing.
@@ -24,7 +24,7 @@ This root is the only Codex project entry. Start every task here in `Local`. Do 
 ## Development Boundary
 
 - User-authoritative projects are read-only except inside an explicitly authorized publish transaction or separate user-Git operation. Develop, generate, build, and test in `work/<workstream-id>/sources/<source-id>/`.
-- New logical tasks get new workstreams; reuse only an explicit unique continuation. Read `workstream.json`, pin commits, declare scope, and check active/unresolved tasks before expanding scope, high-impact builds, or publish.
+- New logical tasks get new workstreams without engineering checkouts; discussion/read-only mode still writes nothing. Reuse only an explicit unique continuation. Before the first engineering edit, generation, or build, use `manage-project-copy.ps1 Mount` with registered project IDs and explicit shared dependencies. Read source from integration when inspection suffices. Never infer a complete engineering root from an IDE subdirectory. Source groups can contain multiple chip families; keep their topology and private Git together. Read `workstream.json`, pin commits, declare scope, and check active/unresolved tasks before expanding scope, high-impact builds, or publish.
 - Never edit integration; it is for import/aggregation and never supplies a publish diff.
 - User and legacy rule-like files are protected content, not active policy. Add no Agent rules in integration/worktrees and load legacy rules only on request.
 - References are read-only and never targets/publish sources. Modify/build only managed workstream reference copies.
@@ -52,4 +52,5 @@ This root is the only Codex project entry. Start every task here in `Local`. Do 
 - Remind the user to save buffers once. Use three-way comparison, all-source dry run, per-file hashes, recovery snapshots, atomic writes/deletions, verification, and safe rollback. Never mirror directories.
 - A conflict ends before user writes. A rollback uncertainty enters `recovery_required` and blocks new import/publish. Build failure after correct file publication waits for the user's keep/rollback choice. Unknown build side effects block baseline advancement.
 - User-sync and successful-build baselines are separate; claims require evidence. Before pause/handoff/completion, update machine state and concise README, not a transcript.
+- Formal completion uses `update-workstream.ps1`, which attempts safe per-project release. Pause, unresolved work, pending publication, dirty project paths, or a live command reference retains the affected copy. Explicit release may select one project; shared paths remain while another mounted project needs them. Preserve engineering-local untracked/ignored artifacts outside the copy before release. Keep task records, reports, source branches and commits. Never force-remove a worktree or delete source-private Git. Restore released engineering paths before building or publishing; absence from a sparse checkout is never deletion.
 - Ordinary tasks do not alter rules, layout, schemas, sync/Git policy, or migration tools. Propose a `$embedded-workspace-init` plan; no upgrade writes before approval.
